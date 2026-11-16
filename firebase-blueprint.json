@@ -59,6 +59,8 @@
         "className": { "type": "string", "maxLength": 50 },
         "status": { "type": "string", "enum": ["AKTIF", "NONAKTIF"] },
         "userUid": { "type": "string", "maxLength": 128 },
+        "qrCodeId": { "type": "string", "maxLength": 128 },
+        "qrToken": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "maxLength": 40 },
         "updatedAt": { "type": "string", "maxLength": 40 }
       },
@@ -296,6 +298,27 @@
         "updatedAt": { "type": "string", "maxLength": 40 }
       },
       "required": ["id", "teacherId", "nip", "teacherName", "role", "classId", "className", "date", "academicYear", "status", "checkInTime", "checkOutTime", "session", "qrTokenUsed", "verifiedByUid", "verifiedByName", "notes", "createdAt", "updatedAt"]
+    },
+    "TeacherQrToken": {
+      "title": "TeacherQrToken",
+      "description": "Token QR Code unik guru dan tenaga kependidikan untuk absensi real-time dengan dukungan regenerasi & pencabutan token",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "token": { "type": "string", "maxLength": 128 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "teacherNip": { "type": "string", "maxLength": 40 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["GURU", "KEPALA_SEKOLAH", "ADMIN_SEKOLAH", "SUPER_ADMIN"] },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["ACTIVE", "REVOKED"] },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "revokedAt": { "type": "string", "maxLength": 40 },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "token", "teacherId", "teacherNip", "teacherName", "role", "classId", "className", "status", "version", "createdAt", "createdBy"]
     }
   },
   "firestore": {
@@ -318,6 +341,10 @@
     "/qrTokens/{tokenId}": {
       "schema": { "$ref": "#/entities/QrToken" },
       "description": "Koleksi token QR siswa"
+    },
+    "/teacherQrTokens/{tokenId}": {
+      "schema": { "$ref": "#/entities/TeacherQrToken" },
+      "description": "Koleksi token QR guru dan tenaga kependidikan"
     },
     "/attendance/{attendanceId}": {
       "schema": { "$ref": "#/entities/AttendanceRecord" },

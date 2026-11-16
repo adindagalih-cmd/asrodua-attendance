@@ -49,12 +49,14 @@ import {
   db,
   formatWhatsAppMessage,
   generateSecureQrToken,
+  generateSecureTeacherQrToken,
   getCurrentTimeString,
   getTeacherQrCodeId,
   getTeacherQrToken,
   getTodayDateString,
   googleProvider,
   handleFirestoreError,
+  resolveTeacherQrData,
   sanitizeId,
   sanitizeString,
 } from './firebase';
@@ -77,6 +79,7 @@ import {
   Teacher,
   TeacherAttendanceRecord,
   TeacherAttendanceStatus,
+  TeacherQrToken,
   UserProfile,
   UserRole,
 } from './types';
@@ -223,6 +226,7 @@ export default function App() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [qrTokens, setQrTokens] = useState<QrToken[]>([]);
+  const [teacherQrTokens, setTeacherQrTokens] = useState<TeacherQrToken[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [teacherAttendance, setTeacherAttendance] = useState<TeacherAttendanceRecord[]>([]);
   const [settings, setSettings] = useState<AttendanceSettings>(DEFAULT_SETTINGS);
@@ -450,7 +454,7 @@ export default function App() {
       )
     );
 
-    // QR Tokens listener
+    // QR Tokens listener (Siswa)
     unsubs.push(
       onSnapshot(
         query(collection(db, 'qrTokens'), where('status', 'in', ['ACTIVE', 'REVOKED'])),
@@ -458,6 +462,17 @@ export default function App() {
           setQrTokens(snap.docs.map((d) => d.data() as QrToken));
         },
         (err) => handleFirestoreError(err, OperationType.LIST, 'qrTokens')
+      )
+    );
+
+    // Teacher QR Tokens listener (Guru & Staf)
+    unsubs.push(
+      onSnapshot(
+        query(collection(db, 'teacherQrTokens'), where('status', 'in', ['ACTIVE', 'REVOKED'])),
+        (snap) => {
+          setTeacherQrTokens(snap.docs.map((d) => d.data() as TeacherQrToken));
+        },
+        (err) => handleFirestoreError(err, OperationType.LIST, 'teacherQrTokens')
       )
     );
 
@@ -1003,6 +1018,141 @@ export default function App() {
     }
   };
 
+  // Teacher QR Code Generation & Regeneration (Revokes old Teacher QR Token & creates new version)
+  const handleRegenerateTeacherQr = async (teacher: Teacher, reason: string) => {
+    if (!userProfile) return;
+    const nowIso = new Date().toISOString();
+    const existingActiveTokens = teacherQrTokens.filter(
+      (t) => t.teacherId === teacher.id && t.status === 'ACTIVE'
+    );
+    const maxVersion = teacherQrTokens
+      .filter((t) => t.teacherId === teacher.id)
+      .reduce((acc, t) => Math.max(acc, t.version || 1), 0);
+    const nextVersion = maxVersion + 1;
+    const { tokenId, tokenString } = generateSecureTeacherQrToken(teacher.id, nextVersion);
+
+    const batch = writeBatch(db);
+    for (const oldTok of existingActiveTokens) {
+      batch.update(doc(db, 'teacherQrTokens', oldTok.id), {
+        status: 'REVOKED',
+        revokedAt: nowIso,
+      });
+    }
+
+    const newQrDoc: TeacherQrToken = {
+      id: tokenId,
+      token: tokenString,
+      teacherId: teacher.id,
+      teacherNip: teacher.nip || '-',
+      teacherName: teacher.fullName,
+      role: teacher.role,
+      classId: teacher.classId || 'ALL',
+      className: teacher.className || 'Staf Sekolah',
+      status: 'ACTIVE',
+      version: nextVersion,
+      createdAt: nowIso,
+      revokedAt: '',
+      createdBy: userProfile.uid,
+    };
+    batch.set(doc(db, 'teacherQrTokens', tokenId), newQrDoc);
+
+    batch.update(doc(db, 'teachers', teacher.id), {
+      qrCodeId: tokenId,
+      qrToken: tokenString,
+      updatedAt: nowIso,
+    });
+
+    try {
+      await batch.commit();
+      await writeAuditEntry({
+        action: 'REGENERASI_QR_GURU',
+        targetCollection: 'teacherQrTokens',
+        targetId: tokenId,
+        targetName: teacher.fullName,
+        previousValue: teacher.qrCodeId
+          ? `Token Lama: ${teacher.qrCodeId} (REVOKED)`
+          : 'QR Standar Awal',
+        newValue: `Token Baru: ${tokenId} (v${nextVersion})`,
+        reason,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `teacherQrTokens/${tokenId}`);
+    }
+  };
+
+  const handleBulkRegenerateTeacherQr = async (
+    targetTeachers: Teacher[],
+    scopeLabel: string
+  ) => {
+    if (!userProfile || targetTeachers.length === 0) return;
+    const nowIso = new Date().toISOString();
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+
+    for (const tch of targetTeachers) {
+      const existingActiveTokens = teacherQrTokens.filter(
+        (t) => t.teacherId === tch.id && t.status === 'ACTIVE'
+      );
+      const maxVersion = teacherQrTokens
+        .filter((t) => t.teacherId === tch.id)
+        .reduce((acc, t) => Math.max(acc, t.version || 1), 0);
+      const nextVersion = maxVersion + 1;
+      const { tokenId, tokenString } = generateSecureTeacherQrToken(tch.id, nextVersion);
+
+      for (const oldTok of existingActiveTokens) {
+        ops.push((b) =>
+          b.update(doc(db, 'teacherQrTokens', oldTok.id), {
+            status: 'REVOKED',
+            revokedAt: nowIso,
+          })
+        );
+      }
+
+      const newQrDoc: TeacherQrToken = {
+        id: tokenId,
+        token: tokenString,
+        teacherId: tch.id,
+        teacherNip: tch.nip || '-',
+        teacherName: tch.fullName,
+        role: tch.role,
+        classId: tch.classId || 'ALL',
+        className: tch.className || 'Staf Sekolah',
+        status: 'ACTIVE',
+        version: nextVersion,
+        createdAt: nowIso,
+        revokedAt: '',
+        createdBy: userProfile.uid,
+      };
+      ops.push((b) => b.set(doc(db, 'teacherQrTokens', tokenId), newQrDoc));
+      ops.push((b) =>
+        b.update(doc(db, 'teachers', tch.id), {
+          qrCodeId: tokenId,
+          qrToken: tokenString,
+          updatedAt: nowIso,
+        })
+      );
+    }
+
+    try {
+      for (let i = 0; i < ops.length; i += 400) {
+        const chunk = ops.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach((applyOp) => applyOp(batch));
+        await batch.commit();
+      }
+      await writeAuditEntry({
+        action: 'GENERATE_MASSAL_QR_GURU',
+        targetCollection: 'teacherQrTokens',
+        targetId: 'bulk_teachers',
+        targetName: scopeLabel,
+        previousValue: `${targetTeachers.length} Guru/Staf`,
+        newValue: `${targetTeachers.length} Token QR Guru Baru Aktif`,
+        reason: `Generate/regenerasi massal QR Code absensi guru untuk ${scopeLabel}`,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'teacherQrTokens_bulk');
+    }
+  };
+
   // Real-Time QR Code Verification & Idempotent Attendance Recording
   const handleProcessQrScan = async (
     rawQrText: string,
@@ -1022,19 +1172,63 @@ export default function App() {
 
     const trimmedQr = rawQrText.trim();
 
-    // 0. Check if scanned QR is a Teacher / Staff QR Code
-    const matchedTeacher = teachers.find(
-      (t) =>
-        t.status === 'AKTIF' &&
-        (getTeacherQrToken(t.id, t.nip) === trimmedQr ||
-          getTeacherQrCodeId(t.id, t.nip) === trimmedQr ||
-          trimmedQr.startsWith(`ASRODUA::GURU::${t.id}::`))
+    // 0a. Check persisted Teacher QR Tokens in teacherQrTokens collection
+    const matchedTeacherToken = teacherQrTokens.find(
+      (t) => t.token === trimmedQr || t.id === trimmedQr
     );
+
+    if (matchedTeacherToken) {
+      if (matchedTeacherToken.status === 'REVOKED') {
+        return {
+          outcome: 'REVOKED_TOKEN',
+          message: `Kartu QR guru lama milik ${matchedTeacherToken.teacherName} (${matchedTeacherToken.id}) telah dinonaktifkan karena regenerasi kartu baru.`,
+          timestamp: timeStr,
+        };
+      }
+      const tokenOwnerTeacher = teachers.find((t) => t.id === matchedTeacherToken.teacherId);
+      if (!tokenOwnerTeacher || tokenOwnerTeacher.status !== 'AKTIF') {
+        return {
+          outcome: 'INVALID_TOKEN',
+          message: 'Data guru pemilik QR Code tidak aktif atau telah dihapus.',
+          timestamp: timeStr,
+        };
+      }
+    }
+
+    // 0b. Match Teacher either via persisted TeacherQrToken or deterministic fallback QR
+    const matchedTeacher = matchedTeacherToken
+      ? teachers.find(
+          (t) => t.id === matchedTeacherToken.teacherId && t.status === 'AKTIF'
+        )
+      : teachers.find(
+          (t) =>
+            t.status === 'AKTIF' &&
+            (t.qrToken === trimmedQr ||
+              t.qrCodeId === trimmedQr ||
+              getTeacherQrToken(t.id, t.nip) === trimmedQr ||
+              getTeacherQrCodeId(t.id, t.nip) === trimmedQr ||
+              trimmedQr.startsWith(`ASRODUA::GURU::${t.id}::`))
+        );
+
+    if (
+      matchedTeacher &&
+      !matchedTeacherToken &&
+      matchedTeacher.qrToken &&
+      matchedTeacher.qrToken !== trimmedQr &&
+      matchedTeacher.qrCodeId !== trimmedQr
+    ) {
+      return {
+        outcome: 'REVOKED_TOKEN',
+        message: `Kartu QR lama milik ${matchedTeacher.fullName} sudah digantikan dengan token baru (${matchedTeacher.qrCodeId}). Gunakan kartu QR terbaru.`,
+        timestamp: timeStr,
+      };
+    }
 
     if (matchedTeacher) {
       const tAttId = `${todayStr}_${matchedTeacher.id}`;
       const existingTAtt = teacherAttendance.find((a) => a.id === tAttId);
-      const qrCodeId = getTeacherQrCodeId(matchedTeacher.id, matchedTeacher.nip);
+      const qrCodeId =
+        matchedTeacherToken?.id || resolveTeacherQrData(matchedTeacher).qrCodeId;
 
       if (session === 'MASUK') {
         if (existingTAtt && existingTAtt.checkInTime) {
@@ -1384,7 +1578,7 @@ export default function App() {
     teacher: Teacher,
     session: 'MASUK' | 'PULANG'
   ) => {
-    const qrToken = getTeacherQrToken(teacher.id, teacher.nip);
+    const { qrToken } = resolveTeacherQrData(teacher);
     await handleProcessQrScan(qrToken, session);
   };
 
@@ -1400,7 +1594,7 @@ export default function App() {
     const nowIso = new Date().toISOString();
     const tAttId = `${date}_${teacher.id}`;
     const existing = teacherAttendance.find((a) => a.id === tAttId);
-    const qrCodeId = getTeacherQrCodeId(teacher.id, teacher.nip);
+    const { qrCodeId } = resolveTeacherQrData(teacher);
 
     const record: TeacherAttendanceRecord = {
       id: tAttId,
@@ -1445,49 +1639,114 @@ export default function App() {
     data: Omit<Teacher, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ) => {
+    if (!userProfile) return;
     const nowIso = new Date().toISOString();
     const id = existingId || sanitizeId(`tch_${Date.now()}`);
     const existing = teachers.find((t) => t.id === id);
-    const teacherDoc: Teacher = {
-      id,
-      nip: sanitizeString(data.nip, 40),
-      fullName: sanitizeString(data.fullName, 120),
-      email: sanitizeString(data.email, 150),
-      phone: sanitizeString(data.phone, 30),
-      role: data.role,
-      classId: sanitizeString(data.classId, 128),
-      className: sanitizeString(data.className, 50),
-      status: data.status,
-      userUid: sanitizeString(data.userUid, 128),
-      createdAt: existing?.createdAt || nowIso,
-      updatedAt: nowIso,
-    };
-    try {
-      await setDoc(doc(db, 'teachers', id), teacherDoc);
-      await writeAuditEntry({
-        action: existingId ? 'EDIT_DATA_GURU' : 'TAMBAH_DATA_GURU',
-        targetCollection: 'teachers',
-        targetId: id,
-        targetName: teacherDoc.fullName,
-        previousValue: existing ? `${existing.fullName} (${existing.className})` : 'NONE',
-        newValue: `${teacherDoc.fullName} (${teacherDoc.role} · ${teacherDoc.className})`,
-        reason: existingId ? 'Pembaruan data guru/wali kelas' : 'Penambahan guru/staf baru',
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `teachers/${id}`);
+
+    if (existingId && existing) {
+      const teacherDoc: Teacher = {
+        id,
+        nip: sanitizeString(data.nip, 40),
+        fullName: sanitizeString(data.fullName, 120),
+        email: sanitizeString(data.email, 150),
+        phone: sanitizeString(data.phone, 30),
+        role: data.role,
+        classId: sanitizeString(data.classId, 128),
+        className: sanitizeString(data.className, 50),
+        status: data.status,
+        userUid: sanitizeString(data.userUid, 128),
+        ...(existing.qrCodeId ? { qrCodeId: existing.qrCodeId } : {}),
+        ...(existing.qrToken ? { qrToken: existing.qrToken } : {}),
+        createdAt: existing.createdAt || nowIso,
+        updatedAt: nowIso,
+      };
+      try {
+        await setDoc(doc(db, 'teachers', id), teacherDoc);
+        await writeAuditEntry({
+          action: 'EDIT_DATA_GURU',
+          targetCollection: 'teachers',
+          targetId: id,
+          targetName: teacherDoc.fullName,
+          previousValue: `${existing.fullName} (${existing.className})`,
+          newValue: `${teacherDoc.fullName} (${teacherDoc.role} · ${teacherDoc.className})`,
+          reason: 'Pembaruan data guru/wali kelas',
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `teachers/${id}`);
+      }
+    } else {
+      const { tokenId, tokenString } = generateSecureTeacherQrToken(id, 1);
+      const teacherDoc: Teacher = {
+        id,
+        nip: sanitizeString(data.nip, 40),
+        fullName: sanitizeString(data.fullName, 120),
+        email: sanitizeString(data.email, 150),
+        phone: sanitizeString(data.phone, 30),
+        role: data.role,
+        classId: sanitizeString(data.classId, 128),
+        className: sanitizeString(data.className, 50),
+        status: data.status,
+        userUid: sanitizeString(data.userUid, 128),
+        qrCodeId: tokenId,
+        qrToken: tokenString,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      const qrDoc: TeacherQrToken = {
+        id: tokenId,
+        token: tokenString,
+        teacherId: id,
+        teacherNip: teacherDoc.nip || '-',
+        teacherName: teacherDoc.fullName,
+        role: teacherDoc.role,
+        classId: teacherDoc.classId || 'ALL',
+        className: teacherDoc.className || 'Staf Sekolah',
+        status: 'ACTIVE',
+        version: 1,
+        createdAt: nowIso,
+        revokedAt: '',
+        createdBy: userProfile.uid,
+      };
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'teachers', id), teacherDoc);
+        batch.set(doc(db, 'teacherQrTokens', tokenId), qrDoc);
+        await batch.commit();
+        await writeAuditEntry({
+          action: 'TAMBAH_DATA_GURU_DAN_QR',
+          targetCollection: 'teachers',
+          targetId: id,
+          targetName: teacherDoc.fullName,
+          previousValue: 'NONE',
+          newValue: `${teacherDoc.fullName} (${teacherDoc.role} · ${teacherDoc.className}) · Token ${tokenId}`,
+          reason: 'Penambahan guru/staf baru beserta QR Code absensi permanen',
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `teachers/${id}`);
+      }
     }
   };
 
   const handleDeleteTeacher = async (tch: Teacher) => {
     try {
       await deleteDoc(doc(db, 'teachers', tch.id));
+      const activeTokens = teacherQrTokens.filter(
+        (t) => t.teacherId === tch.id && t.status === 'ACTIVE'
+      );
+      for (const tok of activeTokens) {
+        await updateDoc(doc(db, 'teacherQrTokens', tok.id), {
+          status: 'REVOKED',
+          revokedAt: new Date().toISOString(),
+        });
+      }
       await writeAuditEntry({
         action: 'HAPUS_DATA_GURU',
         targetCollection: 'teachers',
         targetId: tch.id,
         targetName: tch.fullName,
         previousValue: `NIP ${tch.nip} (${tch.className})`,
-        newValue: 'DIHAPUS',
+        newValue: 'DIHAPUS & QR REVOKED',
         reason: 'Penghapusan data guru oleh administrator',
       });
     } catch (err) {
@@ -1626,6 +1885,24 @@ export default function App() {
             );
           }
         });
+
+        const tTokensSnap = await getDocs(
+          query(collection(db, 'teacherQrTokens'), where('status', 'in', ['ACTIVE', 'REVOKED']))
+        );
+        if (userProfile.role === 'SUPER_ADMIN') {
+          tTokensSnap.docs.forEach((d) => {
+            ops.push((b) => b.delete(d.ref));
+            result.deletedQrTokens++;
+          });
+        } else {
+          tTokensSnap.docs.forEach((d) => {
+            const t = d.data() as TeacherQrToken;
+            if (t.status === 'ACTIVE') {
+              ops.push((b) => b.update(d.ref, { status: 'REVOKED', revokedAt: nowIso }));
+              result.deletedQrTokens++;
+            }
+          });
+        }
 
         if (includeAttendance) {
           const tAttSnap = await getDocs(
@@ -2448,9 +2725,12 @@ export default function App() {
               teachers={teachers}
               classes={classes}
               qrTokens={qrTokens}
+              teacherQrTokens={teacherQrTokens}
               schoolName={siteContent.schoolName}
               onRegenerateStudentQr={handleRegenerateStudentQr}
               onBulkRegenerateQr={handleBulkRegenerateQr}
+              onRegenerateTeacherQr={handleRegenerateTeacherQr}
+              onBulkRegenerateTeacherQr={handleBulkRegenerateTeacherQr}
               onNavigate={setActivePage}
             />
           )}
@@ -2472,6 +2752,7 @@ export default function App() {
               teachers={teachers}
               classes={classes}
               qrTokens={qrTokens}
+              teacherQrTokens={teacherQrTokens}
               attendance={attendance}
               teacherAttendance={teacherAttendance}
               settings={settings}

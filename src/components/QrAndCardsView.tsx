@@ -11,6 +11,7 @@ import {
   CreditCard,
   Users,
   GraduationCap,
+  FileText,
 } from 'lucide-react';
 import {
   AttendanceSettings,
@@ -19,15 +20,19 @@ import {
   SchoolClass,
   Student,
   Teacher,
+  TeacherQrToken,
   UserProfile,
 } from '../types';
 import {
   downloadBulkQrZip,
+  downloadBulkTeacherQrZip,
   downloadSingleQrPng,
   downloadTeacherQrPng,
+  exportStudentIdCardsToPdf,
+  exportTeacherIdCardsToPdf,
   generateQrDataUrl,
 } from '../utils/exportUtils';
-import { getTeacherQrCodeId, getTeacherQrToken } from '../firebase';
+import { resolveTeacherQrData } from '../firebase';
 import { isSubjectTeacher } from './TeachersClassesView';
 
 interface QrGeneratorViewProps {
@@ -36,9 +41,12 @@ interface QrGeneratorViewProps {
   teachers: Teacher[];
   classes: SchoolClass[];
   qrTokens: QrToken[];
+  teacherQrTokens?: TeacherQrToken[];
   schoolName?: string;
   onRegenerateStudentQr: (student: Student, reason: string) => Promise<void>;
   onBulkRegenerateQr: (targetStudents: Student[], scopeLabel: string) => Promise<void>;
+  onRegenerateTeacherQr?: (teacher: Teacher, reason: string) => Promise<void>;
+  onBulkRegenerateTeacherQr?: (targetTeachers: Teacher[], scopeLabel: string) => Promise<void>;
   onNavigate: (page: PageId) => void;
 }
 
@@ -48,9 +56,12 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
   teachers,
   classes,
   qrTokens,
+  teacherQrTokens = [],
   schoolName = 'SDN ASEMROWO II/63 SURABAYA',
   onRegenerateStudentQr,
   onBulkRegenerateQr,
+  onRegenerateTeacherQr,
+  onBulkRegenerateTeacherQr,
   onNavigate,
 }) => {
   const canManageQr =
@@ -66,6 +77,10 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
   const [regenTarget, setRegenTarget] = useState<Student | null>(null);
   const [regenReason, setRegenReason] = useState('Kartu pelajar hilang / rusak');
+  const [regenTeacherTarget, setRegenTeacherTarget] = useState<Teacher | null>(null);
+  const [regenTeacherReason, setRegenTeacherReason] = useState(
+    'Pembaruan / penggantian kartu QR guru'
+  );
 
   const filteredStudents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -128,7 +143,8 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
       const nextMap: Record<string, string> = {};
       for (const t of filteredTeachers) {
         try {
-          nextMap[t.id] = await generateQrDataUrl(getTeacherQrToken(t.id, t.nip), 220);
+          const { qrToken } = resolveTeacherQrData(t);
+          nextMap[t.id] = await generateQrDataUrl(qrToken, 220);
         } catch {
           // ignore
         }
@@ -148,6 +164,20 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
     [qrTokens]
   );
 
+  const teacherTokenStats = useMemo(() => {
+    const activeTokenVersionByTeacher = new Map<string, number>();
+    teacherQrTokens.forEach((tok) => {
+      if (tok.status === 'ACTIVE') {
+        activeTokenVersionByTeacher.set(tok.teacherId, tok.version || 1);
+      }
+    });
+    const persistedCount = teachers.filter(
+      (t) => t.status === 'AKTIF' && Boolean(t.qrToken && t.qrCodeId)
+    ).length;
+    const revokedTeacherCount = teacherQrTokens.filter((t) => t.status === 'REVOKED').length;
+    return { activeTokenVersionByTeacher, persistedCount, revokedTeacherCount };
+  }, [teacherQrTokens, teachers]);
+
   const handleBulkZipDownload = async () => {
     if (filteredStudents.length === 0) return;
     setIsProcessing(true);
@@ -159,6 +189,28 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
       await downloadBulkQrZip(filteredStudents, label);
       setStatusBanner(
         `Berhasil mengunduh arsip ZIP berisi ${filteredStudents.length} file PNG QR Code.`
+      );
+      setTimeout(() => setStatusBanner(null), 4000);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBulkTeacherZipDownload = async () => {
+    if (filteredTeachers.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const label =
+        teacherRoleFilter === 'WALI_KELAS'
+          ? 'Wali_Kelas'
+          : teacherRoleFilter === 'GURU_MAPEL'
+          ? 'Guru_Mapel'
+          : teacherRoleFilter === 'STAF'
+          ? 'Staf_Sekolah'
+          : 'Seluruh_Guru_dan_Staf';
+      await downloadBulkTeacherQrZip(filteredTeachers, label, schoolName);
+      setStatusBanner(
+        `Berhasil mengunduh arsip ZIP berisi ${filteredTeachers.length} file PNG QR Code Guru & Staf.`
       );
       setTimeout(() => setStatusBanner(null), 4000);
     } finally {
@@ -181,6 +233,33 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
       await onBulkRegenerateQr(targets, label);
       setStatusBanner(
         `Berhasil memperbarui & memverifikasi ${targets.length} token QR Code (${label}). Token lama otomatis dinonaktifkan.`
+      );
+      setTimeout(() => setStatusBanner(null), 5000);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBulkGenerateTeacherScope = async (scope: 'FILTERED' | 'ALL') => {
+    if (!onBulkRegenerateTeacherQr) return;
+    const targets =
+      scope === 'ALL'
+        ? teachers.filter((t) => t.status === 'AKTIF')
+        : filteredTeachers;
+    if (targets.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const label =
+        scope === 'ALL'
+          ? 'Seluruh Guru & Staf'
+          : teacherRoleFilter === 'WALI_KELAS'
+          ? 'Guru Wali Kelas'
+          : teacherRoleFilter === 'GURU_MAPEL'
+          ? 'Guru Mata Pelajaran'
+          : 'Staf Sekolah';
+      await onBulkRegenerateTeacherQr(targets, label);
+      setStatusBanner(
+        `Berhasil menerbitkan/memperbarui ${targets.length} token QR Code Guru (${label}) di Firestore. QR lama otomatis dinonaktifkan.`
       );
       setTimeout(() => setStatusBanner(null), 5000);
     } finally {
@@ -239,7 +318,7 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
           <p className="text-xs text-slate-500 mt-0.5">
             {targetMode === 'SISWA'
               ? `Setiap siswa memiliki 1 QR Code kriptografis permanen tanpa menyimpan data pribadi di dalam payload QR (${filteredStudents.length} token aktif · ${revokedCount} token lama dinonaktifkan)`
-              : `Setiap Guru Wali Rombel, Guru Mata Pelajaran, dan Staf memiliki QR Code permanen terintegrasi ke Scanner Absensi (${filteredTeachers.length} pendidik & staf aktif)`}
+              : `Setiap Guru Wali Rombel, Guru Mata Pelajaran, dan Staf memiliki QR Code terverifikasi Firestore (${teacherTokenStats.persistedCount}/${teachers.filter((t) => t.status === 'AKTIF').length} token tersimpan · ${teacherTokenStats.revokedTeacherCount} token lama dinonaktifkan)`}
           </p>
         </div>
 
@@ -276,6 +355,41 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
             >
               <FolderArchive className="w-4 h-4 text-amber-700" />
               <span>{isProcessing ? 'Memproses ZIP...' : 'Download QR dalam ZIP'}</span>
+            </button>
+          )}
+
+          {targetMode === 'GURU' && canManageQr && onBulkRegenerateTeacherQr && (
+            <>
+              {teacherRoleFilter !== 'ALL' && (
+                <button
+                  onClick={() => handleBulkGenerateTeacherScope('FILTERED')}
+                  disabled={isProcessing || filteredTeachers.length === 0}
+                  className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] border border-blue-200 hover:bg-blue-50 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Generate QR Kategori Terpilih</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => handleBulkGenerateTeacherScope('ALL')}
+                disabled={isProcessing || teachers.filter((t) => t.status === 'AKTIF').length === 0}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+              >
+                <QrCode className="w-3.5 h-3.5 text-[#0A3D91]" />
+                <span>Generate QR Seluruh Guru</span>
+              </button>
+            </>
+          )}
+
+          {targetMode === 'GURU' && (
+            <button
+              onClick={handleBulkTeacherZipDownload}
+              disabled={isProcessing || filteredTeachers.length === 0}
+              className="px-3.5 py-2 text-xs font-semibold text-slate-800 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+            >
+              <FolderArchive className="w-4 h-4 text-amber-700" />
+              <span>{isProcessing ? 'Memproses ZIP...' : 'Download QR Guru (ZIP)'}</span>
             </button>
           )}
 
@@ -410,7 +524,8 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filteredTeachers.map((tch) => {
             const isMapel = isSubjectTeacher(tch);
-            const qrCodeId = getTeacherQrCodeId(tch.id, tch.nip);
+            const { qrCodeId, isPersistent } = resolveTeacherQrData(tch);
+            const tokenVersion = teacherTokenStats.activeTokenVersionByTeacher.get(tch.id) || 1;
             return (
               <div
                 key={tch.id}
@@ -418,22 +533,33 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
               >
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <span
-                        className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded mb-1 ${
-                          isMapel
-                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        <span
+                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded ${
+                            isMapel
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : tch.role === 'GURU'
+                              ? 'bg-blue-50 text-[#0A3D91] border border-blue-200'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {isMapel
+                            ? 'GURU MAPEL'
                             : tch.role === 'GURU'
-                            ? 'bg-blue-50 text-[#0A3D91] border border-blue-200'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {isMapel
-                          ? 'GURU MATA PELAJARAN'
-                          : tch.role === 'GURU'
-                          ? 'WALI KELAS / ROMBEL'
-                          : 'STAF / TATA USAHA'}
-                      </span>
+                            ? 'WALI KELAS'
+                            : 'STAF / TU'}
+                        </span>
+                        <span
+                          className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isPersistent
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {isPersistent ? `Token v${tokenVersion}` : 'QR Standar'}
+                        </span>
+                      </div>
                       <h3 className="text-sm font-bold font-display text-slate-900 line-clamp-1">
                         {tch.fullName}
                       </h3>
@@ -468,11 +594,25 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
                   <button
                     onClick={() => downloadTeacherQrPng(tch, schoolName)}
-                    className="w-full py-1.5 px-2.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    className="flex-1 py-1.5 px-2.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Unduh Poster QR Guru (PNG)</span>
+                    <span>Unduh PNG</span>
                   </button>
+
+                  {canManageQr && onRegenerateTeacherQr && (
+                    <button
+                      onClick={() => {
+                        setRegenTeacherTarget(tch);
+                        setRegenTeacherReason('Pembaruan / penggantian kartu QR guru');
+                      }}
+                      title="Regenerasi Token QR Guru (Nonaktifkan QR Lama)"
+                      className="py-1.5 px-2.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Regenerasi</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -540,6 +680,67 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
           </div>
         </div>
       )}
+      {/* Regenerate Teacher QR Modal */}
+      {regenTeacherTarget && onRegenerateTeacherQr && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-center gap-2.5 text-amber-700 mb-3">
+              <ShieldAlert className="w-5 h-5 shrink-0" />
+              <h3 className="text-base font-bold font-display text-slate-900">
+                Regenerasi QR Code Guru &amp; Staf
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              Anda akan menerbitkan token QR Code baru untuk{' '}
+              <strong className="text-slate-900">{regenTeacherTarget.fullName}</strong> (
+              {regenTeacherTarget.className}). Token QR sebelumnya (
+              <span className="font-mono">{resolveTeacherQrData(regenTeacherTarget).qrCodeId}</span>
+              ) akan otomatis diubah menjadi <strong>REVOKED (Nonaktif)</strong> dan tidak dapat
+              digunakan lagi untuk scan presensi guru.
+            </p>
+
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Alasan Regenerasi (Tercatat di Audit Log) *
+              </label>
+              <input
+                type="text"
+                value={regenTeacherReason}
+                onChange={(e) => setRegenTeacherReason(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setRegenTeacherTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={async () => {
+                  setIsProcessing(true);
+                  try {
+                    await onRegenerateTeacherQr(regenTeacherTarget, regenTeacherReason);
+                    setStatusBanner(
+                      `QR Code baru untuk ${regenTeacherTarget.fullName} berhasil diterbitkan. QR Code lama telah dinonaktifkan.`
+                    );
+                    setRegenTeacherTarget(null);
+                    setTimeout(() => setStatusBanner(null), 5000);
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg cursor-pointer"
+              >
+                {isProcessing ? 'Memproses...' : 'Terbitkan QR Baru & Nonaktifkan Lama'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -565,6 +766,8 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
   const [teacherQrMap, setTeacherQrMap] = useState<Record<string, string>>({});
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [cardBanner, setCardBanner] = useState<string | null>(null);
 
   const activeStudents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -623,7 +826,8 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
       const map: Record<string, string> = {};
       for (const t of activeTeachers) {
         try {
-          map[t.id] = await generateQrDataUrl(getTeacherQrToken(t.id, t.nip), 200);
+          const { qrToken } = resolveTeacherQrData(t);
+          map[t.id] = await generateQrDataUrl(qrToken, 200);
         } catch {
           // ignore
         }
@@ -639,6 +843,39 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
   }, [activeTeachers, cardMode]);
 
   const activeCount = cardMode === 'SISWA' ? activeStudents.length : activeTeachers.length;
+
+  const handleDownloadCardsPdf = async () => {
+    if (activeCount === 0) return;
+    setIsExportingPdf(true);
+    try {
+      if (cardMode === 'SISWA') {
+        const label =
+          classFilter === 'ALL'
+            ? 'Seluruh_Siswa'
+            : classes.find((c) => c.id === classFilter)?.name || 'Rombel';
+        await exportStudentIdCardsToPdf(activeStudents, settings, label, tagline);
+        setCardBanner(
+          `Berhasil mengunduh file PDF Lembar Cetak Kartu Pelajar (${activeStudents.length} kartu ukuran CR-80 siap cetak A4).`
+        );
+      } else {
+        const label =
+          teacherRoleFilter === 'WALI_KELAS'
+            ? 'Guru_Wali_Kelas'
+            : teacherRoleFilter === 'GURU_MAPEL'
+            ? 'Guru_Mata_Pelajaran'
+            : teacherRoleFilter === 'STAF'
+            ? 'Staf_Sekolah'
+            : 'Seluruh_Guru_dan_Staf';
+        await exportTeacherIdCardsToPdf(activeTeachers, settings, label, tagline);
+        setCardBanner(
+          `Berhasil mengunduh file PDF Lembar Cetak Kartu ID Guru & Staf (${activeTeachers.length} kartu ukuran CR-80 siap cetak A4).`
+        );
+      }
+      setTimeout(() => setCardBanner(null), 5000);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -734,14 +971,35 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
           )}
 
           <button
+            onClick={() => void handleDownloadCardsPdf()}
+            disabled={isExportingPdf || activeCount === 0}
+            className="px-4 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+          >
+            <FileText className="w-4 h-4 text-[#0A3D91]" />
+            <span>
+              {isExportingPdf
+                ? 'Menyusun PDF...'
+                : `Unduh PDF Siap Cetak A4 (${activeCount})`}
+            </span>
+          </button>
+
+          <button
             onClick={() => window.print()}
-            className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+            disabled={activeCount === 0}
+            className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
           >
             <Printer className="w-4 h-4 text-[#D4AF37]" />
-            <span>Cetak Massal Kartu ({activeCount})</span>
+            <span>Cetak Langsung ({activeCount})</span>
           </button>
         </div>
       </div>
+
+      {cardBanner && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center gap-2 no-print">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{cardBanner}</span>
+        </div>
+      )}
 
       {/* Printable ID Cards Grid (CR-80 Standard Proportions) */}
       {cardMode === 'SISWA' ? (
@@ -844,6 +1102,33 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
                 <span>{tagline}</span>
                 <span className="font-mono tabular-nums">TP {settings.activeAcademicYear}</span>
               </div>
+
+              {/* Individual Card Actions (Hidden during print) */}
+              <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center justify-between gap-2 no-print">
+                <button
+                  type="button"
+                  onClick={() => void downloadSingleQrPng(std)}
+                  className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh PNG</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void exportStudentIdCardsToPdf(
+                      [std],
+                      settings,
+                      `${std.className}_${std.nis}_${std.fullName}`,
+                      tagline
+                    )
+                  }
+                  className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Cetak PDF Kartu</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -851,7 +1136,7 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
           {activeTeachers.map((tch) => {
             const isMapel = isSubjectTeacher(tch);
-            const qrCodeId = getTeacherQrCodeId(tch.id, tch.nip);
+            const { qrCodeId } = resolveTeacherQrData(tch);
             return (
               <div
                 key={tch.id}
@@ -941,6 +1226,33 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
                 <div className="px-4 py-2 bg-[#F5F8FF] border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
                   <span>{tagline}</span>
                   <span className="font-mono tabular-nums">TP {settings.activeAcademicYear}</span>
+                </div>
+
+                {/* Individual Teacher Card Actions (Hidden during print) */}
+                <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center justify-between gap-2 no-print">
+                  <button
+                    type="button"
+                    onClick={() => void downloadTeacherQrPng(tch, settings.schoolName)}
+                    className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh PNG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void exportTeacherIdCardsToPdf(
+                        [tch],
+                        settings,
+                        `${tch.className}_${tch.fullName}`,
+                        tagline
+                      )
+                    }
+                    className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>Cetak PDF Kartu</span>
+                  </button>
                 </div>
               </div>
             );

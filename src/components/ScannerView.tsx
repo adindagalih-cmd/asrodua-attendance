@@ -23,13 +23,13 @@ import {
   Student,
   Teacher,
   TeacherAttendanceRecord,
+  TeacherQrToken,
   UserProfile,
 } from '../types';
 import {
   formatIndonesianDate,
-  getTeacherQrCodeId,
-  getTeacherQrToken,
   getTodayDateString,
+  resolveTeacherQrData,
 } from '../firebase';
 import { playScanSound, unlockScanAudio } from '../utils/exportUtils';
 
@@ -49,6 +49,7 @@ interface ScannerViewProps {
   teachers?: Teacher[];
   classes: SchoolClass[];
   qrTokens: QrToken[];
+  teacherQrTokens?: TeacherQrToken[];
   attendance: AttendanceRecord[];
   teacherAttendance?: TeacherAttendanceRecord[];
   settings: AttendanceSettings;
@@ -64,6 +65,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
   teachers = [],
   classes,
   qrTokens,
+  teacherQrTokens = [],
   attendance,
   teacherAttendance = [],
   settings,
@@ -71,6 +73,9 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 }) => {
   const [session, setSession] = useState<'MASUK' | 'PULANG'>('MASUK');
   const [simTargetMode, setSimTargetMode] = useState<'SISWA' | 'GURU'>('SISWA');
+  const [historyTab, setHistoryTab] = useState<'SISWA' | 'GURU'>('SISWA');
+  const [simTeacherFilter, setSimTeacherFilter] = useState<'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'>('ALL');
+  const [simTeacherSearch, setSimTeacherSearch] = useState('');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -114,6 +119,11 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     try {
       const res = await onProcessQrScan(decodedText, session);
       setLastResult(res);
+      if (res.teacher) {
+        setHistoryTab('GURU');
+      } else if (res.student) {
+        setHistoryTab('SISWA');
+      }
       if (soundEnabled) {
         if (res.outcome === 'SUCCESS') {
           playScanSound('success');
@@ -282,6 +292,11 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     [qrTokens]
   );
 
+  const revokedTeacherSampleToken = useMemo(
+    () => teacherQrTokens.find((t) => t.status === 'REVOKED'),
+    [teacherQrTokens]
+  );
+
   const todayTeacherScans = useMemo(() => {
     return teacherAttendance
       .filter((a) => a.date === todayStr)
@@ -292,6 +307,24 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     () => teachers.filter((t) => t.status === 'AKTIF'),
     [teachers]
   );
+
+  const simTeachers = useMemo(() => {
+    const q = simTeacherSearch.toLowerCase().trim();
+    return activeTeachers.filter((t) => {
+      const isMapel =
+        t.classId.startsWith('MAPEL_') || t.className.toLowerCase().includes('mapel');
+      const isWali = t.role === 'GURU' && !isMapel && t.classId !== 'ALL';
+      if (simTeacherFilter === 'WALI_KELAS' && !isWali) return false;
+      if (simTeacherFilter === 'GURU_MAPEL' && !isMapel) return false;
+      if (simTeacherFilter === 'STAF' && (isWali || isMapel)) return false;
+      if (!q) return true;
+      return (
+        t.fullName.toLowerCase().includes(q) ||
+        t.nip.toLowerCase().includes(q) ||
+        t.className.toLowerCase().includes(q)
+      );
+    });
+  }, [activeTeachers, simTeacherFilter, simTeacherSearch]);
 
   return (
     <div className="space-y-6">
@@ -371,7 +404,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                   Kamera Pemindai QR Code ({session === 'MASUK' ? 'Absensi Masuk' : 'Absensi Pulang'})
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Pilih kamera depan/belakang atau perangkat kamera yang tersedia untuk memindai QR siswa
+                  Pilih kamera depan/belakang atau perangkat kamera yang tersedia untuk memindai QR siswa maupun guru/staf
                 </p>
               </div>
 
@@ -461,8 +494,8 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                     Kamera Siap Diaktifkan
                   </p>
                   <p className="text-xs text-slate-400 max-w-sm mb-4">
-                    Klik tombol &ldquo;Aktifkan Kamera&rdquo; untuk memindai kartu QR siswa secara
-                    langsung, atau gunakan panel uji scan cepat di sebelah kanan.
+                    Klik tombol &ldquo;Aktifkan Kamera&rdquo; untuk memindai kartu QR siswa maupun
+                    guru/staf secara langsung, atau gunakan panel uji scan cepat di sebelah kanan.
                   </p>
                   <button
                     type="button"
@@ -710,45 +743,75 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
               </>
             ) : (
               <>
-                <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                  Klik nama guru/staf di bawah untuk menyimulasikan pemindaian Kartu QR Guru secara
-                  real-time ke koleksi <code className="font-mono text-[#0A3D91]">teacherAttendance</code>:
+                <p className="text-xs text-slate-500 mb-2.5 leading-relaxed">
+                  Klik nama guru/staf untuk menyimulasikan pemindaian Kartu QR Guru ke{' '}
+                  <code className="font-mono text-[#0A3D91]">teacherAttendance</code>:
                 </p>
 
-                <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
-                  {activeTeachers.map((tch) => {
-                    const todayRec = todayTeacherScans.find((r) => r.teacherId === tch.id);
-                    const alreadyDone =
-                      session === 'MASUK'
-                        ? Boolean(todayRec?.checkInTime)
-                        : Boolean(todayRec?.checkOutTime);
-                    const teacherQrPayload = getTeacherQrToken(tch.id, tch.nip);
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={simTeacherSearch}
+                    onChange={(e) => setSimTeacherSearch(e.target.value)}
+                    placeholder="Cari nama guru / NIP..."
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:border-[#0A3D91]"
+                  />
+                  <select
+                    value={simTeacherFilter}
+                    onChange={(e) =>
+                      setSimTeacherFilter(
+                        e.target.value as 'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
+                      )
+                    }
+                    className="px-2.5 py-1.5 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg shrink-0"
+                  >
+                    <option value="ALL">Semua Kategori</option>
+                    <option value="WALI_KELAS">Wali Kelas</option>
+                    <option value="GURU_MAPEL">Guru Mapel</option>
+                    <option value="STAF">Staf / TU</option>
+                  </select>
+                </div>
 
-                    return (
-                      <div
-                        key={tch.id}
-                        className="p-2.5 px-3 flex items-center justify-between gap-2 hover:bg-slate-50 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 truncate">{tch.fullName}</p>
-                          <p className="text-slate-500 font-mono tabular-nums text-[11px]">
-                            {tch.className} · { getTeacherQrCodeId(tch.id, tch.nip) }
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleDecodedToken(teacherQrPayload)}
-                          disabled={isVerifying}
-                          className={`px-3 py-1.5 rounded-lg font-semibold text-xs whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-                            alreadyDone
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-[#0A3D91] text-white hover:bg-[#082f70]'
-                          }`}
+                <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                  {simTeachers.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      Tidak ada guru/staf yang sesuai filter.
+                    </div>
+                  ) : (
+                    simTeachers.map((tch) => {
+                      const todayRec = todayTeacherScans.find((r) => r.teacherId === tch.id);
+                      const alreadyDone =
+                        session === 'MASUK'
+                          ? Boolean(todayRec?.checkInTime)
+                          : Boolean(todayRec?.checkOutTime);
+                      const { qrCodeId, qrToken } = resolveTeacherQrData(tch);
+
+                      return (
+                        <div
+                          key={tch.id}
+                          className="p-2.5 px-3 flex items-center justify-between gap-2 hover:bg-slate-50 text-xs"
                         >
-                          {alreadyDone ? `Sudah Scan (${session})` : `Scan Guru ${session}`}
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 truncate">{tch.fullName}</p>
+                            <p className="text-slate-500 font-mono tabular-nums text-[11px] truncate">
+                              {tch.className} · {qrCodeId}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleDecodedToken(qrToken)}
+                            disabled={isVerifying}
+                            className={`px-3 py-1.5 rounded-lg font-semibold text-xs whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                              alreadyDone
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-[#0A3D91] text-white hover:bg-[#082f70]'
+                            }`}
+                          >
+                            {alreadyDone ? `Sudah Scan (${session})` : `Scan Guru ${session}`}
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </>
             )}
@@ -766,7 +829,15 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                   onClick={() => handleDecodedToken(revokedSampleToken.token)}
                   className="px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg cursor-pointer"
                 >
-                  Uji QR Lama (Nonaktif)
+                  Uji QR Siswa Lama (Nonaktif)
+                </button>
+              )}
+              {revokedTeacherSampleToken && (
+                <button
+                  onClick={() => handleDecodedToken(revokedTeacherSampleToken.token)}
+                  className="px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg cursor-pointer"
+                >
+                  Uji QR Guru Lama (Nonaktif)
                 </button>
               )}
             </div>
@@ -774,32 +845,92 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
           {/* Live Log Today */}
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold font-display text-slate-900">
-                Riwayat Scan Hari Ini ({todayScans.length})
-              </h2>
-              <Clock className="w-4 h-4 text-slate-400" />
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-[#0A3D91]" />
+                <h2 className="text-sm font-bold font-display text-slate-900">
+                  Riwayat Scan Hari Ini
+                </h2>
+              </div>
+
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs">
+                <button
+                  type="button"
+                  onClick={() => setHistoryTab('SISWA')}
+                  className={`px-2.5 py-1 rounded-md font-bold cursor-pointer ${
+                    historyTab === 'SISWA'
+                      ? 'bg-[#0A3D91] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Siswa ({todayScans.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryTab('GURU')}
+                  className={`px-2.5 py-1 rounded-md font-bold cursor-pointer ${
+                    historyTab === 'GURU'
+                      ? 'bg-[#0A3D91] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Guru ({todayTeacherScans.length})
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2 max-h-64 overflow-y-auto text-xs">
-              {todayScans.slice(0, 10).map((rec) => (
-                <div
-                  key={rec.id}
-                  className="p-2.5 rounded-lg bg-[#F5F8FF] border border-slate-200 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 truncate">{rec.studentName}</p>
-                    <p className="text-slate-500">
-                      {rec.className} ·{' '}
-                      <span className="font-semibold text-[#0A3D91]">{rec.status}</span>
-                    </p>
+              {historyTab === 'SISWA' ? (
+                todayScans.length === 0 ? (
+                  <p className="text-center text-slate-400 py-6">
+                    Belum ada pemindaian QR siswa hari ini.
+                  </p>
+                ) : (
+                  todayScans.slice(0, 10).map((rec) => (
+                    <div
+                      key={rec.id}
+                      className="p-2.5 rounded-lg bg-[#F5F8FF] border border-slate-200 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{rec.studentName}</p>
+                        <p className="text-slate-500">
+                          {rec.className} ·{' '}
+                          <span className="font-semibold text-[#0A3D91]">{rec.status}</span>
+                        </p>
+                      </div>
+                      <div className="text-right font-mono tabular-nums text-[11px] text-slate-600 shrink-0">
+                        <p>Masuk: {rec.checkInTime || '-'}</p>
+                        <p>Pulang: {rec.checkOutTime || '-'}</p>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : todayTeacherScans.length === 0 ? (
+                <p className="text-center text-slate-400 py-6">
+                  Belum ada pemindaian QR guru/staf hari ini.
+                </p>
+              ) : (
+                todayTeacherScans.slice(0, 12).map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-2.5 rounded-lg bg-[#F5F8FF] border border-slate-200 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 truncate">{rec.teacherName}</p>
+                      <p className="text-slate-500">
+                        {rec.className} ·{' '}
+                        <span className="font-semibold text-[#0A3D91]">
+                          {rec.status.replace('_', ' ')}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="text-right font-mono tabular-nums text-[11px] text-slate-600 shrink-0">
+                      <p>Masuk: {rec.checkInTime || '-'}</p>
+                      <p>Pulang: {rec.checkOutTime || '-'}</p>
+                    </div>
                   </div>
-                  <div className="text-right font-mono tabular-nums text-[11px] text-slate-600 shrink-0">
-                    <p>Masuk: {rec.checkInTime || '-'}</p>
-                    <p>Pulang: {rec.checkOutTime || '-'}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>

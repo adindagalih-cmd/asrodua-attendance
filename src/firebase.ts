@@ -92,6 +92,50 @@ export function getTeacherQrToken(teacherId: string, nip = ''): string {
   return `ASRODUA::GURU::${cleanId}::${qrCodeId}`;
 }
 
+export function generateSecureTeacherQrToken(teacherId: string, version = 1): {
+  tokenId: string;
+  tokenString: string;
+} {
+  const randomBytes = new Uint8Array(12);
+  if (typeof window !== 'undefined' && window.crypto) {
+    window.crypto.getRandomValues(randomBytes);
+  } else {
+    for (let i = 0; i < 12; i++) randomBytes[i] = Math.floor(Math.random() * 256);
+  }
+  const hex = Array.from(randomBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+  const cleanTch = sanitizeId(teacherId).slice(0, 20);
+  const tokenId = sanitizeId(`ASR2_GURU_${cleanTch}_V${version}_${hex.slice(0, 12)}`);
+  const tokenString = `ASRODUA::GURU::v${version}::${tokenId}::${hex}`;
+  return { tokenId, tokenString };
+}
+
+export function resolveTeacherQrData(teacher: {
+  id: string;
+  nip?: string;
+  qrCodeId?: string;
+  qrToken?: string;
+}): {
+  qrCodeId: string;
+  qrToken: string;
+  isPersistent: boolean;
+} {
+  if (teacher.qrCodeId && teacher.qrToken) {
+    return {
+      qrCodeId: teacher.qrCodeId,
+      qrToken: teacher.qrToken,
+      isPersistent: true,
+    };
+  }
+  return {
+    qrCodeId: getTeacherQrCodeId(teacher.id, teacher.nip || ''),
+    qrToken: getTeacherQrToken(teacher.id, teacher.nip || ''),
+    isPersistent: false,
+  };
+}
+
 export function getTodayDateString(): string {
   const now = new Date();
   const year = now.getFullYear();

@@ -29,9 +29,8 @@ import {
 import {
   formatIndonesianDate,
   getCurrentTimeString,
-  getTeacherQrCodeId,
-  getTeacherQrToken,
   getTodayDateString,
+  resolveTeacherQrData,
 } from '../firebase';
 import {
   downloadTeacherQrPng,
@@ -151,8 +150,8 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
       setQrPreviewDataUrl('');
       return;
     }
-    const token = getTeacherQrToken(qrPreviewTeacher.id, qrPreviewTeacher.nip);
-    generateQrDataUrl(token, 300)
+    const { qrToken } = resolveTeacherQrData(qrPreviewTeacher);
+    generateQrDataUrl(qrToken, 300)
       .then(setQrPreviewDataUrl)
       .catch(() => setQrPreviewDataUrl(''));
   }, [qrPreviewTeacher]);
@@ -383,6 +382,16 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
             <span>Scan QR Guru</span>
           </button>
 
+          {(userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH') && (
+            <button
+              onClick={() => onNavigate('qr-generator')}
+              className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Kelola Semua QR Guru</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               setExportStartDate(selectedDate);
@@ -453,7 +462,8 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
               </div>
 
               <p className="text-xs text-blue-100 font-mono">
-                NIP: {selfTeacher.nip || '-'} · Penugasan: {selfTeacher.className} · Token QR: {getTeacherQrCodeId(selfTeacher.id, selfTeacher.nip)}
+                NIP: {selfTeacher.nip || '-'} · Penugasan: {selfTeacher.className} · Token QR:{' '}
+                {resolveTeacherQrData(selfTeacher).qrCodeId}
               </p>
 
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
@@ -903,7 +913,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
                 {qrPreviewTeacher.role.replace('_', ' ')} · {qrPreviewTeacher.className}
               </p>
               <p className="text-[10px] font-mono text-slate-400 mt-1">
-                ID: {getTeacherQrCodeId(qrPreviewTeacher.id, qrPreviewTeacher.nip)}
+                ID: {resolveTeacherQrData(qrPreviewTeacher).qrCodeId}
               </p>
             </div>
 

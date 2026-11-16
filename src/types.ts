@@ -100,6 +100,8 @@ export interface Teacher {
   className: string;
   status: 'AKTIF' | 'NONAKTIF';
   userUid: string;
+  qrCodeId?: string;
+  qrToken?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -122,6 +124,22 @@ export interface QrToken {
   studentId: string;
   studentNis: string;
   studentName: string;
+  classId: string;
+  className: string;
+  status: 'ACTIVE' | 'REVOKED';
+  version: number;
+  createdAt: string;
+  revokedAt: string;
+  createdBy: string;
+}
+
+export interface TeacherQrToken {
+  id: string;
+  token: string;
+  teacherId: string;
+  teacherNip: string;
+  teacherName: string;
+  role: UserRole;
   classId: string;
   className: string;
   status: 'ACTIVE' | 'REVOKED';

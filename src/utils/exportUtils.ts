@@ -13,8 +13,7 @@ import {
 } from '../types';
 import {
   formatIndonesianDate,
-  getTeacherQrCodeId,
-  getTeacherQrToken,
+  resolveTeacherQrData,
 } from '../firebase';
 
 // Web Audio API Sound Synthesizer for QR Scanner Feedback
@@ -1048,8 +1047,7 @@ export async function renderTeacherQrPosterBlob(
   ctx.font = 'bold 15px Plus Jakarta Sans, sans-serif';
   ctx.fillText('ASRODUA SMART ATTENDANCE — QR ABSENSI GURU & STAF', canvas.width / 2, 92);
 
-  const tokenPayload = getTeacherQrToken(teacher.id, teacher.nip);
-  const qrCodeId = getTeacherQrCodeId(teacher.id, teacher.nip);
+  const { qrToken: tokenPayload, qrCodeId } = resolveTeacherQrData(teacher);
   const qrDataUrl = await generateQrDataUrl(tokenPayload, 380);
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
@@ -1097,6 +1095,34 @@ export async function downloadTeacherQrPng(
   a.href = url;
   const safeName = teacher.fullName.replace(/[^a-zA-Z0-9]/g, '_');
   a.download = `QR_Guru_${teacher.nip || teacher.id}_${safeName}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadBulkTeacherQrZip(
+  teachers: Teacher[],
+  zipLabel = 'Seluruh_Guru',
+  schoolName = 'SDN ASEMROWO II/63 SURABAYA'
+): Promise<void> {
+  const zip = new JSZip();
+  const folder = zip.folder(`QR_Guru_ASRODUA_${zipLabel}`) || zip;
+
+  for (const tch of teachers) {
+    const blob = await renderTeacherQrPosterBlob(tch, schoolName);
+    const safeName = tch.fullName.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeClass = (tch.className || 'Staf').replace(/[^a-zA-Z0-9]/g, '_');
+    const safeNip = (tch.nip && tch.nip !== '-' ? tch.nip : tch.id).replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `${safeClass}_${safeNip}_${safeName}.png`;
+    folder.file(filename, blob);
+  }
+
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `QR_Code_Guru_ASRODUA_${zipLabel}.zip`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1342,4 +1368,333 @@ export function exportTeacherAttendanceToPdf(
     fileName || `Laporan_Absensi_Guru_SDN_Asemrowo_II_63_${new Date().toISOString().slice(0, 10)}.pdf`
   );
 }
+
+// Export Printable A4 Sheet of CR-80 (85.6mm x 54mm) Student QR ID Cards (8 Cards per Page)
+export async function exportStudentIdCardsToPdf(
+  students: Student[],
+  settings: AttendanceSettings,
+  scopeLabel = 'Seluruh_Siswa',
+  tagline = 'Scan, Verify, Attend!'
+): Promise<void> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const cardW = 86;
+  const cardH = 54;
+  const marginX = 14;
+  const marginY = 20;
+  const gapX = 10;
+  const gapY = 8;
+
+  const drawPageHeader = (pageNum: number, totalPages: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(10, 61, 145);
+    doc.text(
+      `LEMBAR CETAK KARTU PELAJAR QR CODE (CR-80) — ${settings.schoolName.toUpperCase()}`,
+      105,
+      11,
+      { align: 'center' }
+    );
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Filter: ${scopeLabel.replace(/_/g, ' ')}  |  Ukuran Standar ID Card: 86mm x 54mm  |  Halaman ${pageNum} dari ${totalPages}`,
+      105,
+      15.5,
+      { align: 'center' }
+    );
+  };
+
+  const totalPages = Math.max(1, Math.ceil(students.length / 8));
+
+  for (let i = 0; i < students.length; i++) {
+    const std = students[i];
+    const indexOnPage = i % 8;
+    if (i > 0 && indexOnPage === 0) {
+      doc.addPage();
+    }
+    if (indexOnPage === 0) {
+      drawPageHeader(Math.floor(i / 8) + 1, totalPages);
+    }
+
+    const col = indexOnPage % 2;
+    const row = Math.floor(indexOnPage / 2);
+    const x = marginX + col * (cardW + gapX);
+    const y = marginY + row * (cardH + gapY);
+
+    // Card Outer Border
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.35);
+    doc.roundedRect(x, y, cardW, cardH, 2.5, 2.5, 'FD');
+
+    // Top Header Banner (#0A3D91)
+    doc.setFillColor(10, 61, 145);
+    doc.rect(x, y, cardW, 13, 'F');
+
+    // Gold Accent Line (#D4AF37)
+    doc.setFillColor(212, 175, 55);
+    doc.rect(x, y + 13, cardW, 1.2, 'F');
+
+    // Header Text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(212, 175, 55);
+    doc.text('KARTU PELAJAR SMART ATTENDANCE', x + 3.5, y + 4.3);
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(settings.schoolName.toUpperCase().slice(0, 34), x + 3.5, y + 8.3);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.8);
+    doc.setTextColor(219, 234, 254);
+    doc.text(`Dinas Pendidikan Kota Surabaya · NPSN ${settings.npsn}`, x + 3.5, y + 11.5);
+
+    // Avatar / Photo Box
+    doc.setFillColor(245, 248, 255);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x + 3.5, y + 17, 15, 20, 1.5, 1.5, 'FD');
+
+    const initials = std.fullName
+      .split(' ')
+      .slice(0, 2)
+      .map((n) => n[0] || '')
+      .join('')
+      .toUpperCase();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(10, 61, 145);
+    doc.text(initials || 'S', x + 11, y + 27, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(4.8);
+    doc.setTextColor(148, 163, 184);
+    doc.text('FOTO 3x4', x + 11, y + 32, { align: 'center' });
+
+    // Student Identity
+    const textX = x + 20.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.6);
+    doc.setTextColor(15, 23, 42);
+    const wrappedName = doc.splitTextToSize(std.fullName, 39).slice(0, 2);
+    doc.text(wrappedName, textX, y + 19.8);
+
+    const metaStartY = wrappedName.length > 1 ? y + 26.5 : y + 24;
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`NIS : ${std.nis}`, textX, metaStartY);
+    doc.setFont('courier', 'normal');
+    doc.text(`NISN: ${std.nisn}`, textX, metaStartY + 3.6);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(10, 61, 145);
+    doc.text(std.className, textX, metaStartY + 7.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text((std.birthPlaceDate || '').slice(0, 28), textX, metaStartY + 11);
+
+    // QR Code Image
+    const qrDataUrl = await generateQrDataUrl(std.qrToken, 240);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x + cardW - 23.5, y + 16.5, 20, 20, 1.2, 1.2, 'S');
+    doc.addImage(qrDataUrl, 'PNG', x + cardW - 23, y + 17, 19, 19);
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${std.nis}·${std.gender}`, x + cardW - 13.5, y + 39.5, { align: 'center' });
+
+    // Footer Strip
+    doc.setFillColor(245, 248, 255);
+    doc.rect(x + 0.3, y + cardH - 6.5, cardW - 0.6, 6.2, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.line(x, y + cardH - 6.5, x + cardW, y + cardH - 6.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(tagline, x + 3.5, y + cardH - 2.5);
+    doc.setFont('courier', 'normal');
+    doc.text(`TP ${settings.activeAcademicYear}`, x + cardW - 3.5, y + cardH - 2.5, {
+      align: 'right',
+    });
+  }
+
+  const safeLabel = scopeLabel.replace(/[^a-zA-Z0-9]/g, '_');
+  doc.save(`Kartu_Pelajar_QR_${safeLabel}_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+// Export Printable A4 Sheet of CR-80 (85.6mm x 54mm) Teacher & Staff QR ID Cards (8 Cards per Page)
+export async function exportTeacherIdCardsToPdf(
+  teachers: Teacher[],
+  settings: AttendanceSettings,
+  scopeLabel = 'Seluruh_Guru_dan_Staf',
+  tagline = 'Scan, Verify, Attend!'
+): Promise<void> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const cardW = 86;
+  const cardH = 54;
+  const marginX = 14;
+  const marginY = 20;
+  const gapX = 10;
+  const gapY = 8;
+
+  const drawPageHeader = (pageNum: number, totalPages: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(10, 61, 145);
+    doc.text(
+      `LEMBAR CETAK KARTU ID GURU & STAF QR CODE (CR-80) — ${settings.schoolName.toUpperCase()}`,
+      105,
+      11,
+      { align: 'center' }
+    );
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Kategori: ${scopeLabel.replace(/_/g, ' ')}  |  Ukuran Standar ID Card: 86mm x 54mm  |  Halaman ${pageNum} dari ${totalPages}`,
+      105,
+      15.5,
+      { align: 'center' }
+    );
+  };
+
+  const totalPages = Math.max(1, Math.ceil(teachers.length / 8));
+
+  for (let i = 0; i < teachers.length; i++) {
+    const tch = teachers[i];
+    const indexOnPage = i % 8;
+    if (i > 0 && indexOnPage === 0) {
+      doc.addPage();
+    }
+    if (indexOnPage === 0) {
+      drawPageHeader(Math.floor(i / 8) + 1, totalPages);
+    }
+
+    const col = indexOnPage % 2;
+    const row = Math.floor(indexOnPage / 2);
+    const x = marginX + col * (cardW + gapX);
+    const y = marginY + row * (cardH + gapY);
+
+    // Card Outer Border
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.35);
+    doc.roundedRect(x, y, cardW, cardH, 2.5, 2.5, 'FD');
+
+    // Top Header Banner (#0A3D91)
+    doc.setFillColor(10, 61, 145);
+    doc.rect(x, y, cardW, 13, 'F');
+
+    // Gold Accent Line (#D4AF37)
+    doc.setFillColor(212, 175, 55);
+    doc.rect(x, y + 13, cardW, 1.2, 'F');
+
+    // Header Text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(212, 175, 55);
+    doc.text('KARTU PRESENSI GURU & TENAGA KEPENDIDIKAN', x + 3.5, y + 4.3);
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(settings.schoolName.toUpperCase().slice(0, 34), x + 3.5, y + 8.3);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.8);
+    doc.setTextColor(219, 234, 254);
+    doc.text(`Dinas Pendidikan Kota Surabaya · NPSN ${settings.npsn}`, x + 3.5, y + 11.5);
+
+    // Avatar Box
+    doc.setFillColor(245, 248, 255);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x + 3.5, y + 17, 15, 20, 1.5, 1.5, 'FD');
+
+    const initials = tch.fullName
+      .split(' ')
+      .slice(0, 2)
+      .map((n) => n[0] || '')
+      .join('')
+      .toUpperCase();
+    const isMapel =
+      tch.classId.startsWith('MAPEL_') || tch.className.toLowerCase().includes('mapel');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(10, 61, 145);
+    doc.text(initials || 'G', x + 11, y + 27, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(4.6);
+    doc.setTextColor(148, 163, 184);
+    doc.text(isMapel ? 'MAPEL' : tch.role === 'GURU' ? 'ROMBEL' : 'STAF', x + 11, y + 32, {
+      align: 'center',
+    });
+
+    // Teacher Identity
+    const textX = x + 20.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.4);
+    doc.setTextColor(15, 23, 42);
+    const wrappedName = doc.splitTextToSize(tch.fullName, 39).slice(0, 2);
+    doc.text(wrappedName, textX, y + 19.8);
+
+    const metaStartY = wrappedName.length > 1 ? y + 26.5 : y + 24;
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`NIP: ${(tch.nip || '-').slice(0, 20)}`, textX, metaStartY);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(10, 61, 145);
+    doc.text((tch.className || '-').slice(0, 25), textX, metaStartY + 4.2);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(100, 116, 139);
+    const roleLabel = isMapel
+      ? 'Guru Mata Pelajaran'
+      : tch.role === 'GURU'
+      ? 'Wali Kelas Rombel'
+      : 'Tenaga Kependidikan';
+    doc.text(roleLabel, textX, metaStartY + 8.2);
+
+    // QR Code Image
+    const { qrToken, qrCodeId } = resolveTeacherQrData(tch);
+    const qrDataUrl = await generateQrDataUrl(qrToken, 240);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x + cardW - 23.5, y + 16.5, 20, 20, 1.2, 1.2, 'S');
+    doc.addImage(qrDataUrl, 'PNG', x + cardW - 23, y + 17, 19, 19);
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(4.6);
+    doc.setTextColor(100, 116, 139);
+    doc.text(qrCodeId.slice(0, 18), x + cardW - 13.5, y + 39.5, { align: 'center' });
+
+    // Footer Strip
+    doc.setFillColor(245, 248, 255);
+    doc.rect(x + 0.3, y + cardH - 6.5, cardW - 0.6, 6.2, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.line(x, y + cardH - 6.5, x + cardW, y + cardH - 6.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(tagline, x + 3.5, y + cardH - 2.5);
+    doc.setFont('courier', 'normal');
+    doc.text(`TP ${settings.activeAcademicYear}`, x + cardW - 3.5, y + cardH - 2.5, {
+      align: 'right',
+    });
+  }
+
+  const safeLabel = scopeLabel.replace(/[^a-zA-Z0-9]/g, '_');
+  doc.save(`Kartu_ID_Guru_QR_${safeLabel}_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 

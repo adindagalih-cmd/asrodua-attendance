@@ -633,6 +633,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <UserCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
               <span>Kelola Absensi Guru &amp; Mapel</span>
             </button>
+            {(userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('qr-generator')}
+                className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>QR Absensi Guru</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onNavigate('teachers')}

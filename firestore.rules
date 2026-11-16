@@ -103,7 +103,7 @@ service cloud.firestore {
 
     function isValidTeacher(data) {
       return data.keys().hasAll(['id', 'nip', 'fullName', 'email', 'phone', 'role', 'classId', 'className', 'status', 'userUid', 'createdAt', 'updatedAt']) &&
-             data.keys().hasOnly(['id', 'nip', 'fullName', 'email', 'phone', 'role', 'classId', 'className', 'status', 'userUid', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'nip', 'fullName', 'email', 'phone', 'role', 'classId', 'className', 'status', 'userUid', 'qrCodeId', 'qrToken', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
              data.nip is string && data.nip.size() <= 40 &&
              data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
@@ -114,6 +114,8 @@ service cloud.firestore {
              data.className is string && data.className.size() <= 50 &&
              data.status is string && data.status in ['AKTIF', 'NONAKTIF'] &&
              data.userUid is string && data.userUid.size() <= 128 &&
+             (!('qrCodeId' in data) || (data.qrCodeId is string && data.qrCodeId.size() <= 128)) &&
+             (!('qrToken' in data) || (data.qrToken is string && data.qrToken.size() <= 128)) &&
              data.createdAt is string && data.createdAt.size() <= 40 &&
              data.updatedAt is string && data.updatedAt.size() <= 40;
     }
@@ -140,6 +142,24 @@ service cloud.firestore {
              data.studentId is string && data.studentId.size() >= 1 && data.studentId.size() <= 128 &&
              data.studentNis is string && data.studentNis.size() <= 30 &&
              data.studentName is string && data.studentName.size() <= 120 &&
+             data.classId is string && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() <= 50 &&
+             data.status is string && data.status in ['ACTIVE', 'REVOKED'] &&
+             data.version is int && data.version >= 1 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.revokedAt is string && data.revokedAt.size() <= 40 &&
+             data.createdBy is string && data.createdBy.size() <= 128;
+    }
+
+    function isValidTeacherQrToken(data) {
+      return data.keys().hasAll(['id', 'token', 'teacherId', 'teacherNip', 'teacherName', 'role', 'classId', 'className', 'status', 'version', 'createdAt', 'revokedAt', 'createdBy']) &&
+             data.keys().hasOnly(['id', 'token', 'teacherId', 'teacherNip', 'teacherName', 'role', 'classId', 'className', 'status', 'version', 'createdAt', 'revokedAt', 'createdBy']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.token is string && data.token.size() >= 8 && data.token.size() <= 128 &&
+             data.teacherId is string && data.teacherId.size() >= 1 && data.teacherId.size() <= 128 &&
+             data.teacherNip is string && data.teacherNip.size() <= 40 &&
+             data.teacherName is string && data.teacherName.size() <= 120 &&
+             data.role is string && data.role in ['GURU', 'KEPALA_SEKOLAH', 'ADMIN_SEKOLAH', 'SUPER_ADMIN'] &&
              data.classId is string && data.classId.size() <= 128 &&
              data.className is string && data.className.size() <= 50 &&
              data.status is string && data.status in ['ACTIVE', 'REVOKED'] &&
@@ -374,12 +394,24 @@ service cloud.firestore {
       allow delete: if isSignedIn() && isValidId(classId) && isAdminOrSuper();
     }
 
-    // 5. QR Tokens Collection
+    // 5. QR Tokens Collection (Siswa)
     match /qrTokens/{tokenId} {
       allow get: if isSignedIn() && isValidId(tokenId) && isStaff();
       allow list: if isSignedIn() && resource.data.status in ['ACTIVE', 'REVOKED'];
       allow create: if isSignedIn() && isValidId(tokenId) && isValidQrToken(incoming()) && incoming().id == tokenId && incoming().createdBy == request.auth.uid && isAdminOrSuper();
       allow update: if isSignedIn() && isValidId(tokenId) && isValidQrToken(incoming()) && incoming().id == existing().id && incoming().studentId == existing().studentId && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() ||
+        (isOperationalStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'revokedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(tokenId) && isSuperAdmin();
+    }
+
+    // 5b. Teacher QR Tokens Collection (Guru & Staf)
+    match /teacherQrTokens/{tokenId} {
+      allow get: if isSignedIn() && isValidId(tokenId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['ACTIVE', 'REVOKED'];
+      allow create: if isSignedIn() && isValidId(tokenId) && isValidTeacherQrToken(incoming()) && incoming().id == tokenId && incoming().createdBy == request.auth.uid && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(tokenId) && isValidTeacherQrToken(incoming()) && incoming().id == existing().id && incoming().teacherId == existing().teacherId && incoming().createdAt == existing().createdAt && (
         isAdminOrSuper() ||
         (isOperationalStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'revokedAt']))
       );

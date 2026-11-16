@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Edit2,
@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   RotateCcw,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import {
   PageId,
@@ -27,7 +28,8 @@ import {
   UserRole,
 } from '../types';
 import { SUBJECT_TEACHER_OPTIONS } from '../seedData';
-import { downloadTeacherQrPng } from '../utils/exportUtils';
+import { downloadTeacherQrPng, generateQrDataUrl } from '../utils/exportUtils';
+import { resolveTeacherQrData } from '../firebase';
 
 interface TeachersViewProps {
   userProfile: UserProfile;
@@ -70,6 +72,20 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
   const [includeAttendanceReset, setIncludeAttendanceReset] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [qrPreviewTeacher, setQrPreviewTeacher] = useState<Teacher | null>(null);
+  const [qrPreviewDataUrl, setQrPreviewDataUrl] = useState<string>('');
+  const [isDownloadingQr, setIsDownloadingQr] = useState(false);
+
+  useEffect(() => {
+    if (!qrPreviewTeacher) {
+      setQrPreviewDataUrl('');
+      return;
+    }
+    const { qrToken } = resolveTeacherQrData(qrPreviewTeacher);
+    generateQrDataUrl(qrToken, 280)
+      .then(setQrPreviewDataUrl)
+      .catch(() => setQrPreviewDataUrl(''));
+  }, [qrPreviewTeacher]);
 
   const [categoryFilter, setCategoryFilter] = useState<
     'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
@@ -233,13 +249,24 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           {onNavigate && (
-            <button
-              onClick={() => onNavigate('teacher-attendance')}
-              className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>Buka Absensi Guru</span>
-            </button>
+            <>
+              <button
+                onClick={() => onNavigate('teacher-attendance')}
+                className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Buka Absensi Guru</span>
+              </button>
+              {canEdit && (
+                <button
+                  onClick={() => onNavigate('qr-generator')}
+                  className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-white hover:bg-[#F5F8FF] border border-blue-200 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>Kelola QR Guru</span>
+                </button>
+              )}
+            </>
           )}
           {canEdit && (
             <>
@@ -492,8 +519,8 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1">
                           <button
-                            onClick={() => void downloadTeacherQrPng(t, schoolName)}
-                            title="Unduh Kartu QR Absensi Guru (PNG)"
+                            onClick={() => setQrPreviewTeacher(t)}
+                            title="Lihat & Unduh Kartu QR Absensi Guru"
                             className="px-2 py-1 text-[11px] font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
                           >
                             <QrCode className="w-3.5 h-3.5" />
@@ -849,6 +876,74 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
                 <span>{isResetting ? 'Mereset...' : 'Ya, Reset Data Guru'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {qrPreviewTeacher && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-sm w-full p-6 shadow-xl text-center">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
+              <h3 className="text-base font-bold font-display text-slate-900">
+                Kartu QR Absensi Guru
+              </h3>
+              <button
+                onClick={() => setQrPreviewTeacher(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#F5F8FF] border border-slate-200 mb-4">
+              <p className="text-xs font-bold text-[#0A3D91] mb-2">{schoolName}</p>
+              {qrPreviewDataUrl ? (
+                <img
+                  src={qrPreviewDataUrl}
+                  alt={`QR ${qrPreviewTeacher.fullName}`}
+                  className="w-48 h-48 mx-auto rounded-lg border border-slate-200 bg-white p-2"
+                />
+              ) : (
+                <div className="w-48 h-48 mx-auto flex items-center justify-center text-xs text-slate-400">
+                  Memuat QR...
+                </div>
+              )}
+              <p className="text-sm font-bold font-display text-slate-900 mt-3">
+                {qrPreviewTeacher.fullName}
+              </p>
+              <p className="text-xs font-mono text-slate-600">
+                NIP: {qrPreviewTeacher.nip || '-'}
+              </p>
+              <p className="text-xs font-semibold text-[#0A3D91] mt-0.5">
+                {qrPreviewTeacher.role.replace('_', ' ')} · {qrPreviewTeacher.className}
+              </p>
+              <p className="text-[10px] font-mono text-slate-400 mt-1">
+                ID: {resolveTeacherQrData(qrPreviewTeacher).qrCodeId}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 text-xs">
+              <button
+                onClick={() => setQrPreviewTeacher(null)}
+                className="px-4 py-2 font-semibold text-slate-600 bg-slate-100 rounded-lg cursor-pointer"
+              >
+                Tutup
+              </button>
+              <button
+                disabled={isDownloadingQr}
+                onClick={async () => {
+                  setIsDownloadingQr(true);
+                  try {
+                    await downloadTeacherQrPng(qrPreviewTeacher, schoolName);
+                  } finally {
+                    setIsDownloadingQr(false);
+                  }
+                }}
+                className="px-4 py-2 font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>{isDownloadingQr ? 'Mengunduh...' : 'Unduh Kartu PNG'}</span>
               </button>
             </div>
           </div>
