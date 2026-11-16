@@ -1,0 +1,475 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email == 'adindagalih@gmail.com';
+    }
+
+    function hasActiveRole(allowedRoles) {
+      return isBootstrappedAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in allowedRoles
+      );
+    }
+
+    function isConfiguredPrincipalEmail() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/attendanceSettings/global) &&
+        ('principalEmail' in get(/databases/$(database)/documents/attendanceSettings/global).data) &&
+        get(/databases/$(database)/documents/attendanceSettings/global).data.principalEmail is string &&
+        get(/databases/$(database)/documents/attendanceSettings/global).data.principalEmail.size() >= 3 &&
+        request.auth.token.email.lower() == get(/databases/$(database)/documents/attendanceSettings/global).data.principalEmail.lower();
+    }
+
+    function isSuperAdmin() {
+      return hasActiveRole(['SUPER_ADMIN']);
+    }
+
+    function isAdminOrSuper() {
+      return hasActiveRole(['SUPER_ADMIN', 'ADMIN_SEKOLAH']);
+    }
+
+    function isOperationalStaff() {
+      return hasActiveRole(['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'GURU']);
+    }
+
+    function isStaff() {
+      return hasActiveRole(['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU']);
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'assignedClassId', 'assignedClassName', 'nip', 'phone', 'photoUrl', 'active', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['uid', 'name', 'email', 'role', 'assignedClassId', 'assignedClassName', 'nip', 'phone', 'photoUrl', 'active', 'createdAt', 'updatedAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+             data.role is string && data.role in ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'] &&
+             data.assignedClassId is string && data.assignedClassId.size() <= 128 &&
+             data.assignedClassName is string && data.assignedClassName.size() <= 60 &&
+             data.nip is string && data.nip.size() <= 40 &&
+             data.phone is string && data.phone.size() <= 30 &&
+             data.photoUrl is string && data.photoUrl.size() <= 500 &&
+             data.active is bool &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['id', 'nis', 'nisn', 'fullName', 'gender', 'birthPlaceDate', 'classId', 'className', 'parentName', 'parentWhatsapp', 'photoUrl', 'status', 'qrCodeId', 'qrToken', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'nis', 'nisn', 'fullName', 'gender', 'birthPlaceDate', 'classId', 'className', 'parentName', 'parentWhatsapp', 'photoUrl', 'status', 'qrCodeId', 'qrToken', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.nis is string && data.nis.size() >= 1 && data.nis.size() <= 30 &&
+             data.nisn is string && data.nisn.size() >= 1 && data.nisn.size() <= 30 &&
+             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+             data.gender is string && data.gender in ['L', 'P'] &&
+             data.birthPlaceDate is string && data.birthPlaceDate.size() <= 100 &&
+             data.classId is string && data.classId.size() >= 1 && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() >= 1 && data.className.size() <= 50 &&
+             data.parentName is string && data.parentName.size() <= 120 &&
+             data.parentWhatsapp is string && data.parentWhatsapp.size() <= 30 &&
+             data.photoUrl is string && data.photoUrl.size() <= 2000 &&
+             data.status is string && data.status in ['AKTIF', 'NONAKTIF'] &&
+             data.qrCodeId is string && data.qrCodeId.size() >= 1 && data.qrCodeId.size() <= 128 &&
+             data.qrToken is string && data.qrToken.size() >= 1 && data.qrToken.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidTeacher(data) {
+      return data.keys().hasAll(['id', 'nip', 'fullName', 'email', 'phone', 'role', 'classId', 'className', 'status', 'userUid', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'nip', 'fullName', 'email', 'phone', 'role', 'classId', 'className', 'status', 'userUid', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.nip is string && data.nip.size() <= 40 &&
+             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+             data.email is string && data.email.size() <= 150 &&
+             data.phone is string && data.phone.size() <= 30 &&
+             data.role is string && data.role in ['GURU', 'KEPALA_SEKOLAH', 'ADMIN_SEKOLAH', 'SUPER_ADMIN'] &&
+             data.classId is string && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() <= 50 &&
+             data.status is string && data.status in ['AKTIF', 'NONAKTIF'] &&
+             data.userUid is string && data.userUid.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasAll(['id', 'name', 'grade', 'homeroomTeacherId', 'homeroomTeacherName', 'academicYear', 'capacity', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'name', 'grade', 'homeroomTeacherId', 'homeroomTeacherName', 'academicYear', 'capacity', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 50 &&
+             data.grade is int && data.grade >= 1 && data.grade <= 6 &&
+             data.homeroomTeacherId is string && data.homeroomTeacherId.size() <= 128 &&
+             data.homeroomTeacherName is string && data.homeroomTeacherName.size() <= 120 &&
+             data.academicYear is string && data.academicYear.size() <= 30 &&
+             data.capacity is int && data.capacity >= 1 && data.capacity <= 100 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidQrToken(data) {
+      return data.keys().hasAll(['id', 'token', 'studentId', 'studentNis', 'studentName', 'classId', 'className', 'status', 'version', 'createdAt', 'revokedAt', 'createdBy']) &&
+             data.keys().hasOnly(['id', 'token', 'studentId', 'studentNis', 'studentName', 'classId', 'className', 'status', 'version', 'createdAt', 'revokedAt', 'createdBy']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.token is string && data.token.size() >= 8 && data.token.size() <= 128 &&
+             data.studentId is string && data.studentId.size() >= 1 && data.studentId.size() <= 128 &&
+             data.studentNis is string && data.studentNis.size() <= 30 &&
+             data.studentName is string && data.studentName.size() <= 120 &&
+             data.classId is string && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() <= 50 &&
+             data.status is string && data.status in ['ACTIVE', 'REVOKED'] &&
+             data.version is int && data.version >= 1 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.revokedAt is string && data.revokedAt.size() <= 40 &&
+             data.createdBy is string && data.createdBy.size() <= 128;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['id', 'studentId', 'nis', 'nisn', 'studentName', 'classId', 'className', 'date', 'academicYear', 'status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'whatsappSent', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'studentId', 'nis', 'nisn', 'studentName', 'classId', 'className', 'date', 'academicYear', 'status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'whatsappSent', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.studentId is string && data.studentId.size() >= 1 && data.studentId.size() <= 128 &&
+             data.nis is string && data.nis.size() <= 30 &&
+             data.nisn is string && data.nisn.size() <= 30 &&
+             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 120 &&
+             data.classId is string && data.classId.size() >= 1 && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() >= 1 && data.className.size() <= 50 &&
+             data.date is string && data.date.size() >= 8 && data.date.size() <= 20 &&
+             data.academicYear is string && data.academicYear.size() <= 30 &&
+             data.status is string && data.status in ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'ALPA'] &&
+             data.checkInTime is string && data.checkInTime.size() <= 20 &&
+             data.checkOutTime is string && data.checkOutTime.size() <= 20 &&
+             data.session is string && data.session in ['MASUK', 'PULANG', 'MANUAL'] &&
+             data.qrTokenUsed is string && data.qrTokenUsed.size() <= 128 &&
+             data.verifiedByUid is string && data.verifiedByUid.size() >= 1 && data.verifiedByUid.size() <= 128 &&
+             data.verifiedByName is string && data.verifiedByName.size() <= 120 &&
+             data.notes is string && data.notes.size() <= 300 &&
+             data.whatsappSent is bool &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidTeacherAttendance(data) {
+      return data.keys().hasAll(['id', 'teacherId', 'nip', 'teacherName', 'role', 'classId', 'className', 'date', 'academicYear', 'status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'teacherId', 'nip', 'teacherName', 'role', 'classId', 'className', 'date', 'academicYear', 'status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.teacherId is string && data.teacherId.size() >= 1 && data.teacherId.size() <= 128 &&
+             data.nip is string && data.nip.size() <= 40 &&
+             data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 120 &&
+             data.role is string && data.role in ['GURU', 'KEPALA_SEKOLAH', 'ADMIN_SEKOLAH', 'SUPER_ADMIN'] &&
+             data.classId is string && data.classId.size() >= 1 && data.classId.size() <= 128 &&
+             data.className is string && data.className.size() >= 1 && data.className.size() <= 50 &&
+             data.date is string && data.date.size() >= 8 && data.date.size() <= 20 &&
+             data.academicYear is string && data.academicYear.size() <= 30 &&
+             data.status is string && data.status in ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'DINAS_LUAR', 'ALPA'] &&
+             data.checkInTime is string && data.checkInTime.size() <= 20 &&
+             data.checkOutTime is string && data.checkOutTime.size() <= 20 &&
+             data.session is string && data.session in ['MASUK', 'PULANG', 'MANUAL'] &&
+             data.qrTokenUsed is string && data.qrTokenUsed.size() <= 128 &&
+             data.verifiedByUid is string && data.verifiedByUid.size() >= 1 && data.verifiedByUid.size() <= 128 &&
+             data.verifiedByName is string && data.verifiedByName.size() <= 120 &&
+             data.notes is string && data.notes.size() <= 300 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['id', 'schoolName', 'npsn', 'schoolAddress', 'principalName', 'principalNip', 'principalEmail', 'activeAcademicYear', 'semester', 'checkInStart', 'checkInDeadline', 'checkInLateLimit', 'checkOutStart', 'checkOutEnd', 'whatsappEnabled', 'whatsappProvider', 'whatsappApiUrl', 'whatsappSenderNumber', 'whatsappTemplate', 'allowTeacherManualEdit', 'updatedAt', 'updatedBy']) &&
+             data.keys().hasOnly(['id', 'schoolName', 'npsn', 'schoolAddress', 'principalName', 'principalNip', 'principalEmail', 'activeAcademicYear', 'semester', 'checkInStart', 'checkInDeadline', 'checkInLateLimit', 'checkOutStart', 'checkOutEnd', 'whatsappEnabled', 'whatsappProvider', 'whatsappApiUrl', 'whatsappSenderNumber', 'whatsappTemplate', 'allowTeacherManualEdit', 'updatedAt', 'updatedBy']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+             data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 150 &&
+             data.npsn is string && data.npsn.size() <= 30 &&
+             data.schoolAddress is string && data.schoolAddress.size() <= 250 &&
+             data.principalName is string && data.principalName.size() <= 120 &&
+             data.principalNip is string && data.principalNip.size() <= 40 &&
+             data.principalEmail is string && data.principalEmail.size() <= 150 &&
+             data.activeAcademicYear is string && data.activeAcademicYear.size() <= 30 &&
+             data.semester is string && data.semester in ['GANJIL', 'GENAP'] &&
+             data.checkInStart is string && data.checkInStart.size() <= 10 &&
+             data.checkInDeadline is string && data.checkInDeadline.size() <= 10 &&
+             data.checkInLateLimit is string && data.checkInLateLimit.size() <= 10 &&
+             data.checkOutStart is string && data.checkOutStart.size() <= 10 &&
+             data.checkOutEnd is string && data.checkOutEnd.size() <= 10 &&
+             data.whatsappEnabled is bool &&
+             data.whatsappProvider is string && data.whatsappProvider.size() <= 60 &&
+             data.whatsappApiUrl is string && data.whatsappApiUrl.size() <= 250 &&
+             data.whatsappSenderNumber is string && data.whatsappSenderNumber.size() <= 30 &&
+             data.whatsappTemplate is string && data.whatsappTemplate.size() <= 1500 &&
+             data.allowTeacherManualEdit is bool &&
+             data.updatedAt is string && data.updatedAt.size() <= 40 &&
+             data.updatedBy is string && data.updatedBy.size() <= 128;
+    }
+
+    function isValidNotificationLog(data) {
+      return data.keys().hasAll(['id', 'attendanceId', 'studentId', 'studentName', 'className', 'parentName', 'recipientPhone', 'message', 'status', 'session', 'date', 'sentAt', 'retryCount', 'errorReason']) &&
+             data.keys().hasOnly(['id', 'attendanceId', 'studentId', 'studentName', 'className', 'parentName', 'recipientPhone', 'message', 'status', 'session', 'date', 'sentAt', 'retryCount', 'errorReason']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.attendanceId is string && data.attendanceId.size() <= 128 &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.studentName is string && data.studentName.size() <= 120 &&
+             data.className is string && data.className.size() <= 50 &&
+             data.parentName is string && data.parentName.size() <= 120 &&
+             data.recipientPhone is string && data.recipientPhone.size() <= 30 &&
+             data.message is string && data.message.size() <= 1500 &&
+             data.status is string && data.status in ['SENT', 'DELIVERED', 'FAILED', 'PENDING'] &&
+             data.session is string && data.session in ['MASUK', 'PULANG', 'MANUAL'] &&
+             data.date is string && data.date.size() <= 20 &&
+             data.sentAt is string && data.sentAt.size() <= 40 &&
+             data.retryCount is int && data.retryCount >= 0 && data.retryCount <= 20 &&
+             data.errorReason is string && data.errorReason.size() <= 300;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'action', 'targetCollection', 'targetId', 'targetName', 'previousValue', 'newValue', 'reason', 'actorUid', 'actorName', 'actorRole', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'action', 'targetCollection', 'targetId', 'targetName', 'previousValue', 'newValue', 'reason', 'actorUid', 'actorName', 'actorRole', 'createdAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+             data.targetCollection is string && data.targetCollection.size() <= 50 &&
+             data.targetId is string && data.targetId.size() <= 128 &&
+             data.targetName is string && data.targetName.size() <= 150 &&
+             data.previousValue is string && data.previousValue.size() <= 1000 &&
+             data.newValue is string && data.newValue.size() <= 1000 &&
+             data.reason is string && data.reason.size() <= 300 &&
+             data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+             data.actorName is string && data.actorName.size() <= 120 &&
+             data.actorRole is string && data.actorRole.size() <= 40 &&
+             data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidAcademicYear(data) {
+      return data.keys().hasAll(['id', 'year', 'semester', 'isActive', 'startDate', 'endDate', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'year', 'semester', 'isActive', 'startDate', 'endDate', 'createdAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.year is string && data.year.size() >= 4 && data.year.size() <= 30 &&
+             data.semester is string && data.semester in ['GANJIL', 'GENAP'] &&
+             data.isActive is bool &&
+             data.startDate is string && data.startDate.size() <= 20 &&
+             data.endDate is string && data.endDate.size() <= 20 &&
+             data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidSiteContent(data) {
+      return data.keys().hasAll(['id', 'appTitle', 'tagline', 'schoolName', 'npsn', 'schoolAddress', 'schoolEmail', 'schoolPhone', 'principalName', 'principalNip', 'activeAcademicYear', 'semester', 'heroTitle', 'heroSubtitle', 'heroDescription', 'feature1Title', 'feature1Desc', 'feature2Title', 'feature2Desc', 'feature3Title', 'feature3Desc', 'announcementBannerTitle', 'announcementBannerBody', 'showAnnouncementBanner', 'footerText', 'updatedAt', 'updatedBy']) &&
+             data.keys().hasOnly(['id', 'appTitle', 'tagline', 'schoolName', 'npsn', 'schoolAddress', 'schoolEmail', 'schoolPhone', 'principalName', 'principalNip', 'activeAcademicYear', 'semester', 'heroTitle', 'heroSubtitle', 'heroDescription', 'feature1Title', 'feature1Desc', 'feature2Title', 'feature2Desc', 'feature3Title', 'feature3Desc', 'announcementBannerTitle', 'announcementBannerBody', 'showAnnouncementBanner', 'footerText', 'updatedAt', 'updatedBy']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.appTitle is string && data.appTitle.size() >= 1 && data.appTitle.size() <= 100 &&
+             data.tagline is string && data.tagline.size() <= 120 &&
+             data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 150 &&
+             data.npsn is string && data.npsn.size() <= 30 &&
+             data.schoolAddress is string && data.schoolAddress.size() <= 250 &&
+             data.schoolEmail is string && data.schoolEmail.size() <= 150 &&
+             data.schoolPhone is string && data.schoolPhone.size() <= 40 &&
+             data.principalName is string && data.principalName.size() <= 120 &&
+             data.principalNip is string && data.principalNip.size() <= 40 &&
+             data.activeAcademicYear is string && data.activeAcademicYear.size() <= 30 &&
+             data.semester is string && data.semester in ['GANJIL', 'GENAP'] &&
+             data.heroTitle is string && data.heroTitle.size() <= 200 &&
+             data.heroSubtitle is string && data.heroSubtitle.size() <= 150 &&
+             data.heroDescription is string && data.heroDescription.size() <= 800 &&
+             data.feature1Title is string && data.feature1Title.size() <= 80 &&
+             data.feature1Desc is string && data.feature1Desc.size() <= 160 &&
+             data.feature2Title is string && data.feature2Title.size() <= 80 &&
+             data.feature2Desc is string && data.feature2Desc.size() <= 160 &&
+             data.feature3Title is string && data.feature3Title.size() <= 80 &&
+             data.feature3Desc is string && data.feature3Desc.size() <= 160 &&
+             data.announcementBannerTitle is string && data.announcementBannerTitle.size() <= 150 &&
+             data.announcementBannerBody is string && data.announcementBannerBody.size() <= 600 &&
+             data.showAnnouncementBanner is bool &&
+             data.footerText is string && data.footerText.size() <= 200 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40 &&
+             data.updatedBy is string && data.updatedBy.size() <= 128;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['id', 'title', 'content', 'category', 'publishDate', 'isPinned', 'isPublished', 'authorName', 'authorUid', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'title', 'content', 'category', 'publishDate', 'isPinned', 'isPublished', 'authorName', 'authorUid', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 1500 &&
+             data.category is string && data.category in ['PENGUMUMAN', 'KEGIATAN', 'AKADEMIK', 'DARURAT'] &&
+             data.publishDate is string && data.publishDate.size() <= 20 &&
+             data.isPinned is bool &&
+             data.isPublished is bool &&
+             data.authorName is string && data.authorName.size() <= 120 &&
+             data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    // Connection health check endpoint
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+    }
+
+    // 1. Users Collection (PII Isolated to owner or SuperAdmin)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && incoming().uid == userId && (
+        isSuperAdmin() ||
+        (request.auth.uid == userId && incoming().role == 'GURU') ||
+        (request.auth.uid == userId && isConfiguredPrincipalEmail() && incoming().role == 'KEPALA_SEKOLAH') ||
+        (request.auth.uid == userId && isBootstrappedAdmin() && incoming().role == 'SUPER_ADMIN')
+      );
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt && (
+        isSuperAdmin() ||
+        (request.auth.uid == userId && incoming().role == existing().role && incoming().active == existing().active && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'nip', 'phone', 'photoUrl', 'assignedClassId', 'assignedClassName', 'updatedAt'])) ||
+        (request.auth.uid == userId && isConfiguredPrincipalEmail() && incoming().role == 'KEPALA_SEKOLAH' && incoming().active == existing().active && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'assignedClassId', 'assignedClassName', 'updatedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(userId) && isSuperAdmin();
+    }
+
+    // 2. Students Collection
+    match /students/{studentId} {
+      allow get: if isSignedIn() && isValidId(studentId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['AKTIF', 'NONAKTIF'];
+      allow create: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming()) && incoming().id == studentId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() ||
+        (isOperationalStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['qrCodeId', 'qrToken', 'updatedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(studentId) && isAdminOrSuper();
+    }
+
+    // 3. Teachers Collection
+    match /teachers/{teacherId} {
+      allow get: if isSignedIn() && isValidId(teacherId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['AKTIF', 'NONAKTIF'];
+      allow create: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming()) && incoming().id == teacherId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && isAdminOrSuper();
+      allow delete: if isSignedIn() && isValidId(teacherId) && isAdminOrSuper();
+    }
+
+    // 4. Classes Collection
+    match /classes/{classId} {
+      allow get: if isSignedIn() && isValidId(classId) && isStaff();
+      allow list: if isSignedIn() && resource.data.grade >= 1 && resource.data.grade <= 6;
+      allow create: if isSignedIn() && isValidId(classId) && isValidClass(incoming()) && incoming().id == classId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(classId) && isValidClass(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && isAdminOrSuper();
+      allow delete: if isSignedIn() && isValidId(classId) && isAdminOrSuper();
+    }
+
+    // 5. QR Tokens Collection
+    match /qrTokens/{tokenId} {
+      allow get: if isSignedIn() && isValidId(tokenId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['ACTIVE', 'REVOKED'];
+      allow create: if isSignedIn() && isValidId(tokenId) && isValidQrToken(incoming()) && incoming().id == tokenId && incoming().createdBy == request.auth.uid && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(tokenId) && isValidQrToken(incoming()) && incoming().id == existing().id && incoming().studentId == existing().studentId && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() ||
+        (isOperationalStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'revokedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(tokenId) && isSuperAdmin();
+    }
+
+    // 6. Attendance Collection (Siswa)
+    match /attendance/{attendanceId} {
+      allow get: if isSignedIn() && isValidId(attendanceId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'ALPA'];
+      allow create: if isSignedIn() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().id == attendanceId && incoming().verifiedByUid == request.auth.uid && isOperationalStaff();
+      allow update: if isSignedIn() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().id == existing().id && incoming().studentId == existing().studentId && incoming().date == existing().date && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() ||
+        (isOperationalStaff() && incoming().verifiedByUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'whatsappSent', 'updatedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(attendanceId) && isSuperAdmin();
+    }
+
+    // 6b. Teacher Attendance Collection (Guru & Staf)
+    match /teacherAttendance/{attendanceId} {
+      allow get: if isSignedIn() && isValidId(attendanceId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'DINAS_LUAR', 'ALPA'];
+      allow create: if isSignedIn() && isValidId(attendanceId) && isValidTeacherAttendance(incoming()) && incoming().id == attendanceId && incoming().verifiedByUid == request.auth.uid && isStaff();
+      allow update: if isSignedIn() && isValidId(attendanceId) && isValidTeacherAttendance(incoming()) && incoming().id == existing().id && incoming().teacherId == existing().teacherId && incoming().date == existing().date && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() ||
+        (isStaff() && incoming().verifiedByUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'checkInTime', 'checkOutTime', 'session', 'qrTokenUsed', 'verifiedByUid', 'verifiedByName', 'notes', 'updatedAt']))
+      );
+      allow delete: if isSignedIn() && isValidId(attendanceId) && isAdminOrSuper();
+    }
+
+    // 7. Attendance Settings Collection
+    match /attendanceSettings/{settingId} {
+      allow get: if isSignedIn() && isValidId(settingId) && (isStaff() || isConfiguredPrincipalEmail());
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(settingId) && isValidSettings(incoming()) && incoming().id == settingId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(settingId) && isValidSettings(incoming()) && incoming().id == existing().id && (
+        isSuperAdmin() ||
+        (isAdminOrSuper() && incoming().diff(existing()).affectedKeys().hasOnly(['schoolName', 'npsn', 'schoolAddress', 'principalName', 'principalNip', 'principalEmail', 'activeAcademicYear', 'semester', 'checkInStart', 'checkInDeadline', 'checkInLateLimit', 'checkOutStart', 'checkOutEnd', 'whatsappEnabled', 'whatsappProvider', 'whatsappApiUrl', 'whatsappSenderNumber', 'whatsappTemplate', 'allowTeacherManualEdit', 'updatedAt', 'updatedBy']))
+      );
+      allow delete: if false;
+    }
+
+    // 8. Notification Logs Collection
+    match /notificationLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && isStaff();
+      allow list: if isSignedIn() && resource.data.status in ['SENT', 'DELIVERED', 'FAILED', 'PENDING'];
+      allow create: if isSignedIn() && isValidId(logId) && isValidNotificationLog(incoming()) && incoming().id == logId && isOperationalStaff();
+      allow update: if isSignedIn() && isValidId(logId) && isValidNotificationLog(incoming()) && incoming().id == existing().id && incoming().studentId == existing().studentId && (
+        isAdminOrSuper() ||
+        (isOperationalStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'sentAt', 'retryCount', 'errorReason']))
+      );
+      allow delete: if isSignedIn() && isValidId(logId) && isSuperAdmin();
+    }
+
+    // 9. Audit Logs Collection (Append-only immutable audit trail)
+    match /auditLogs/{auditId} {
+      allow get: if isSignedIn() && isValidId(auditId) && isStaff();
+      allow list: if isSignedIn() && resource.data.actorRole in ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'];
+      allow create: if isSignedIn() && isValidId(auditId) && isValidAuditLog(incoming()) && incoming().id == auditId && incoming().actorUid == request.auth.uid && isStaff();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // 10. Academic Years Collection
+    match /academicYears/{yearId} {
+      allow get: if isSignedIn() && isValidId(yearId) && isStaff();
+      allow list: if isSignedIn() && resource.data.semester in ['GANJIL', 'GENAP'];
+      allow create: if isSignedIn() && isValidId(yearId) && isValidAcademicYear(incoming()) && incoming().id == yearId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(yearId) && isValidAcademicYear(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && (
+        isAdminOrSuper() && incoming().diff(existing()).affectedKeys().hasOnly(['year', 'semester', 'isActive', 'startDate', 'endDate'])
+      );
+      allow delete: if isSignedIn() && isValidId(yearId) && isAdminOrSuper();
+    }
+
+    // 11. Site Content Collection (Public non-PII portal content editable by Admins)
+    match /siteContent/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if isSignedIn() && resource.data.id is string;
+      allow create: if isSignedIn() && isValidId(docId) && isValidSiteContent(incoming()) && incoming().id == docId && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(docId) && isValidSiteContent(incoming()) && incoming().id == existing().id && isAdminOrSuper();
+      allow delete: if false;
+    }
+
+    // 12. Announcements Collection (Public published school info & admin-editable news)
+    match /announcements/{announcementId} {
+      allow get: if isValidId(announcementId) && (existing().isPublished == true || isStaff());
+      allow list: if resource.data.isPublished == true || isStaff();
+      allow create: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming()) && incoming().id == announcementId && incoming().authorUid == request.auth.uid && isAdminOrSuper();
+      allow update: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt && isAdminOrSuper();
+      allow delete: if isSignedIn() && isValidId(announcementId) && isAdminOrSuper();
+    }
+  }
+}

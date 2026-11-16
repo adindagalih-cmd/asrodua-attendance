@@ -1,0 +1,355 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Akun pengguna sistem (Super Admin, Admin Sekolah, Guru)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN_SEKOLAH", "KEPALA_SEKOLAH", "GURU"] },
+        "assignedClassId": { "type": "string", "maxLength": 128 },
+        "assignedClassName": { "type": "string", "maxLength": 60 },
+        "nip": { "type": "string", "maxLength": 40 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "name", "email", "role", "active", "createdAt", "updatedAt"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Data induk siswa SDN ASEMROWO II/63 SURABAYA",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nis": { "type": "string", "maxLength": 30 },
+        "nisn": { "type": "string", "maxLength": 30 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "gender": { "type": "string", "enum": ["L", "P"] },
+        "birthPlaceDate": { "type": "string", "maxLength": 100 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "parentName": { "type": "string", "maxLength": 120 },
+        "parentWhatsapp": { "type": "string", "maxLength": 30 },
+        "photoUrl": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["AKTIF", "NONAKTIF"] },
+        "qrCodeId": { "type": "string", "maxLength": 128 },
+        "qrToken": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "nis", "nisn", "fullName", "gender", "birthPlaceDate", "classId", "className", "parentName", "parentWhatsapp", "status", "qrCodeId", "qrToken", "createdAt", "updatedAt"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Data guru dan wali kelas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nip": { "type": "string", "maxLength": 40 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "role": { "type": "string", "enum": ["GURU", "KEPALA_SEKOLAH", "ADMIN_SEKOLAH", "SUPER_ADMIN"] },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["AKTIF", "NONAKTIF"] },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "nip", "fullName", "email", "phone", "role", "classId", "className", "status", "createdAt", "updatedAt"]
+    },
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "Data rombongan belajar / kelas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 50 },
+        "grade": { "type": "number" },
+        "homeroomTeacherId": { "type": "string", "maxLength": 128 },
+        "homeroomTeacherName": { "type": "string", "maxLength": 120 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "capacity": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "name", "grade", "homeroomTeacherId", "homeroomTeacherName", "academicYear", "capacity", "createdAt", "updatedAt"]
+    },
+    "QrToken": {
+      "title": "QrToken",
+      "description": "Token QR Code unik siswa untuk verifikasi aman tanpa menyimpan data pribadi di dalam QR",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "token": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentNis": { "type": "string", "maxLength": 30 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["ACTIVE", "REVOKED"] },
+        "version": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "revokedAt": { "type": "string", "maxLength": 40 },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "token", "studentId", "studentNis", "studentName", "classId", "className", "status", "version", "createdAt", "createdBy"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Data kehadiran harian siswa (Masuk & Pulang)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "nis": { "type": "string", "maxLength": 30 },
+        "nisn": { "type": "string", "maxLength": 30 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "date": { "type": "string", "maxLength": 20 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["HADIR", "TERLAMBAT", "IZIN", "SAKIT", "ALPA"] },
+        "checkInTime": { "type": "string", "maxLength": 20 },
+        "checkOutTime": { "type": "string", "maxLength": 20 },
+        "session": { "type": "string", "enum": ["MASUK", "PULANG", "MANUAL"] },
+        "qrTokenUsed": { "type": "string", "maxLength": 128 },
+        "verifiedByUid": { "type": "string", "maxLength": 128 },
+        "verifiedByName": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 300 },
+        "whatsappSent": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "studentId", "nis", "nisn", "studentName", "classId", "className", "date", "academicYear", "status", "checkInTime", "checkOutTime", "session", "qrTokenUsed", "verifiedByUid", "verifiedByName", "notes", "whatsappSent", "createdAt", "updatedAt"]
+    },
+    "AttendanceSettings": {
+      "title": "AttendanceSettings",
+      "description": "Konfigurasi jam operasional absensi dan integrasi WhatsApp",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "schoolName": { "type": "string", "maxLength": 150 },
+        "npsn": { "type": "string", "maxLength": 30 },
+        "schoolAddress": { "type": "string", "maxLength": 250 },
+        "principalName": { "type": "string", "maxLength": 120 },
+        "principalNip": { "type": "string", "maxLength": 40 },
+        "principalEmail": { "type": "string", "format": "email", "maxLength": 150 },
+        "activeAcademicYear": { "type": "string", "maxLength": 30 },
+        "semester": { "type": "string", "enum": ["GANJIL", "GENAP"] },
+        "checkInStart": { "type": "string", "maxLength": 10 },
+        "checkInDeadline": { "type": "string", "maxLength": 10 },
+        "checkInLateLimit": { "type": "string", "maxLength": 10 },
+        "checkOutStart": { "type": "string", "maxLength": 10 },
+        "checkOutEnd": { "type": "string", "maxLength": 10 },
+        "whatsappEnabled": { "type": "boolean" },
+        "whatsappProvider": { "type": "string", "maxLength": 60 },
+        "whatsappApiUrl": { "type": "string", "maxLength": 250 },
+        "whatsappSenderNumber": { "type": "string", "maxLength": 30 },
+        "whatsappTemplate": { "type": "string", "maxLength": 1500 },
+        "allowTeacherManualEdit": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 40 },
+        "updatedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "schoolName", "npsn", "schoolAddress", "principalName", "principalNip", "principalEmail", "activeAcademicYear", "semester", "checkInStart", "checkInDeadline", "checkInLateLimit", "checkOutStart", "checkOutEnd", "whatsappEnabled", "whatsappProvider", "whatsappApiUrl", "whatsappSenderNumber", "whatsappTemplate", "allowTeacherManualEdit", "updatedAt", "updatedBy"]
+    },
+    "NotificationLog": {
+      "title": "NotificationLog",
+      "description": "Riwayat pengiriman notifikasi WhatsApp ke orang tua/wali",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "attendanceId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 50 },
+        "parentName": { "type": "string", "maxLength": 120 },
+        "recipientPhone": { "type": "string", "maxLength": 30 },
+        "message": { "type": "string", "maxLength": 1500 },
+        "status": { "type": "string", "enum": ["SENT", "DELIVERED", "FAILED", "PENDING"] },
+        "session": { "type": "string", "enum": ["MASUK", "PULANG", "MANUAL"] },
+        "date": { "type": "string", "maxLength": 20 },
+        "sentAt": { "type": "string", "maxLength": 40 },
+        "retryCount": { "type": "number" },
+        "errorReason": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["id", "attendanceId", "studentId", "studentName", "className", "parentName", "recipientPhone", "message", "status", "session", "date", "sentAt", "retryCount", "errorReason"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Catatan audit perubahan data kehadiran dan sistem keamanan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "maxLength": 80 },
+        "targetCollection": { "type": "string", "maxLength": 50 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "targetName": { "type": "string", "maxLength": 150 },
+        "previousValue": { "type": "string", "maxLength": 1000 },
+        "newValue": { "type": "string", "maxLength": 1000 },
+        "reason": { "type": "string", "maxLength": 300 },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorName": { "type": "string", "maxLength": 120 },
+        "actorRole": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "action", "targetCollection", "targetId", "targetName", "previousValue", "newValue", "reason", "actorUid", "actorName", "actorRole", "createdAt"]
+    },
+    "AcademicYear": {
+      "title": "AcademicYear",
+      "description": "Data tahun pelajaran dan semester",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "year": { "type": "string", "maxLength": 30 },
+        "semester": { "type": "string", "enum": ["GANJIL", "GENAP"] },
+        "isActive": { "type": "boolean" },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "year", "semester", "isActive", "startDate", "endDate", "createdAt"]
+    },
+    "SiteContent": {
+      "title": "SiteContent",
+      "description": "Konten informasi publik website sekolah dan identitas portal yang dapat diedit admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "appTitle": { "type": "string", "maxLength": 100 },
+        "tagline": { "type": "string", "maxLength": 120 },
+        "schoolName": { "type": "string", "maxLength": 150 },
+        "npsn": { "type": "string", "maxLength": 30 },
+        "schoolAddress": { "type": "string", "maxLength": 250 },
+        "schoolEmail": { "type": "string", "maxLength": 150 },
+        "schoolPhone": { "type": "string", "maxLength": 40 },
+        "principalName": { "type": "string", "maxLength": 120 },
+        "principalNip": { "type": "string", "maxLength": 40 },
+        "activeAcademicYear": { "type": "string", "maxLength": 30 },
+        "semester": { "type": "string", "enum": ["GANJIL", "GENAP"] },
+        "heroTitle": { "type": "string", "maxLength": 200 },
+        "heroSubtitle": { "type": "string", "maxLength": 150 },
+        "heroDescription": { "type": "string", "maxLength": 800 },
+        "feature1Title": { "type": "string", "maxLength": 80 },
+        "feature1Desc": { "type": "string", "maxLength": 160 },
+        "feature2Title": { "type": "string", "maxLength": 80 },
+        "feature2Desc": { "type": "string", "maxLength": 160 },
+        "feature3Title": { "type": "string", "maxLength": 80 },
+        "feature3Desc": { "type": "string", "maxLength": 160 },
+        "announcementBannerTitle": { "type": "string", "maxLength": 150 },
+        "announcementBannerBody": { "type": "string", "maxLength": 600 },
+        "showAnnouncementBanner": { "type": "boolean" },
+        "footerText": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "maxLength": 40 },
+        "updatedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "appTitle", "tagline", "schoolName", "npsn", "schoolAddress", "schoolEmail", "schoolPhone", "principalName", "principalNip", "activeAcademicYear", "semester", "heroTitle", "heroSubtitle", "heroDescription", "feature1Title", "feature1Desc", "feature2Title", "feature2Desc", "feature3Title", "feature3Desc", "announcementBannerTitle", "announcementBannerBody", "showAnnouncementBanner", "footerText", "updatedAt", "updatedBy"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Informasi dan pengumuman sekolah yang dikelola oleh admin untuk portal dan dashboard",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 160 },
+        "content": { "type": "string", "maxLength": 1500 },
+        "category": { "type": "string", "enum": ["PENGUMUMAN", "KEGIATAN", "AKADEMIK", "DARURAT"] },
+        "publishDate": { "type": "string", "maxLength": 20 },
+        "isPinned": { "type": "boolean" },
+        "isPublished": { "type": "boolean" },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "title", "content", "category", "publishDate", "isPinned", "isPublished", "authorName", "authorUid", "createdAt", "updatedAt"]
+    },
+    "TeacherAttendanceRecord": {
+      "title": "TeacherAttendanceRecord",
+      "description": "Data kehadiran harian guru dan staf sekolah (Masuk, Pulang, Izin, Sakit, Dinas Luar)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "nip": { "type": "string", "maxLength": 40 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["GURU", "KEPALA_SEKOLAH", "ADMIN_SEKOLAH", "SUPER_ADMIN"] },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 50 },
+        "date": { "type": "string", "maxLength": 20 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["HADIR", "TERLAMBAT", "IZIN", "SAKIT", "DINAS_LUAR", "ALPA"] },
+        "checkInTime": { "type": "string", "maxLength": 20 },
+        "checkOutTime": { "type": "string", "maxLength": 20 },
+        "session": { "type": "string", "enum": ["MASUK", "PULANG", "MANUAL"] },
+        "qrTokenUsed": { "type": "string", "maxLength": 128 },
+        "verifiedByUid": { "type": "string", "maxLength": 128 },
+        "verifiedByName": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "teacherId", "nip", "teacherName", "role", "classId", "className", "date", "academicYear", "status", "checkInTime", "checkOutTime", "session", "qrTokenUsed", "verifiedByUid", "verifiedByName", "notes", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Koleksi pengguna sistem dengan RBAC"
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Koleksi data induk siswa"
+    },
+    "/teachers/{teacherId}": {
+      "schema": { "$ref": "#/entities/Teacher" },
+      "description": "Koleksi data guru dan wali kelas"
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/SchoolClass" },
+      "description": "Koleksi data kelas"
+    },
+    "/qrTokens/{tokenId}": {
+      "schema": { "$ref": "#/entities/QrToken" },
+      "description": "Koleksi token QR siswa"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Koleksi data kehadiran siswa"
+    },
+    "/teacherAttendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/TeacherAttendanceRecord" },
+      "description": "Koleksi data kehadiran guru dan tenaga kependidikan"
+    },
+    "/attendanceSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AttendanceSettings" },
+      "description": "Koleksi pengaturan operasional absensi"
+    },
+    "/notificationLogs/{logId}": {
+      "schema": { "$ref": "#/entities/NotificationLog" },
+      "description": "Koleksi log pengiriman pesan WhatsApp orang tua"
+    },
+    "/auditLogs/{auditId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Koleksi audit log keamanan"
+    },
+    "/academicYears/{yearId}": {
+      "schema": { "$ref": "#/entities/AcademicYear" },
+      "description": "Koleksi tahun pelajaran"
+    },
+    "/siteContent/{docId}": {
+      "schema": { "$ref": "#/entities/SiteContent" },
+      "description": "Koleksi konten publik website dan identitas sekolah"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Koleksi informasi dan pengumuman sekolah"
+    }
+  }
+}

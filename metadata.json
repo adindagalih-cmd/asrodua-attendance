@@ -1,0 +1,6 @@
+{
+  "name": "ASRODUA SMART ATTENDANCE",
+  "description": "Sistem Manajemen Absensi Siswa Berbasis QR Code — SDN ASEMROWO II/63 SURABAYA. Scan, Verify, Attend!",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
