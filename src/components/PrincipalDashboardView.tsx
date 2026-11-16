@@ -16,7 +16,6 @@ import {
   UserCheck,
   Clock,
   AlertTriangle,
-  MessageSquare,
   FileSpreadsheet,
   FileText,
   History,
@@ -39,6 +38,7 @@ import {
   SchoolClass,
   Student,
   Teacher,
+  TeacherAttendanceRecord,
   UserProfile,
 } from '../types';
 import { formatIndonesianDate, getTodayDateString } from '../firebase';
@@ -46,6 +46,7 @@ import {
   exportAttendanceToPdf,
   exportFullAttendanceRangeToExcel,
 } from '../utils/exportUtils';
+import { isSubjectTeacher } from './TeachersClassesView';
 
 interface PrincipalDashboardViewProps {
   userProfile: UserProfile;
@@ -53,6 +54,7 @@ interface PrincipalDashboardViewProps {
   teachers: Teacher[];
   classes: SchoolClass[];
   attendance: AttendanceRecord[];
+  teacherAttendance: TeacherAttendanceRecord[];
   notificationLogs: NotificationLog[];
   auditLogs: AuditLog[];
   announcements: Announcement[];
@@ -71,6 +73,7 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
   teachers,
   classes,
   attendance,
+  teacherAttendance,
   notificationLogs,
   auditLogs,
   announcements,
@@ -111,6 +114,11 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
     [attendance, selectedDate]
   );
 
+  const dateTeacherAttendance = useMemo(
+    () => teacherAttendance.filter((r) => r.date === selectedDate),
+    [teacherAttendance, selectedDate]
+  );
+
   const executiveStats = useMemo(() => {
     const totalStudents = activeStudents.length;
     const hadir = dateAttendance.filter((a) => a.status === 'HADIR').length;
@@ -135,6 +143,23 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
     const waRate =
       dateNotifs.length > 0 ? Math.round((waDelivered / dateNotifs.length) * 100) : 100;
 
+    const tHadir = dateTeacherAttendance.filter((r) => r.status === 'HADIR').length;
+    const tLate = dateTeacherAttendance.filter((r) => r.status === 'TERLAMBAT').length;
+    const tDinas = dateTeacherAttendance.filter((r) => r.status === 'DINAS_LUAR').length;
+    const tIzinSakit = dateTeacherAttendance.filter(
+      (r) => r.status === 'IZIN' || r.status === 'SAKIT'
+    ).length;
+    const tAlpa = dateTeacherAttendance.filter((r) => r.status === 'ALPA').length;
+    const tRecordedIds = new Set(dateTeacherAttendance.map((r) => r.teacherId));
+    const tBelum = activeTeachers.filter((t) => !tRecordedIds.has(t.id)).length;
+    const tPresent = tHadir + tLate + tDinas;
+    const teacherRate =
+      activeTeachers.length > 0
+        ? Math.round((tPresent / activeTeachers.length) * 1000) / 10
+        : 0;
+    const waliCount = activeTeachers.filter((t) => t.role === 'GURU' && !isSubjectTeacher(t)).length;
+    const mapelCount = activeTeachers.filter((t) => isSubjectTeacher(t)).length;
+
     return {
       totalStudents,
       hadir,
@@ -150,8 +175,18 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
       dateNotifsCount: dateNotifs.length,
       waDelivered,
       waRate,
+      tHadir,
+      tLate,
+      tDinas,
+      tIzinSakit,
+      tAlpa,
+      tBelum,
+      tPresent,
+      teacherRate,
+      waliCount,
+      mapelCount,
     };
-  }, [activeStudents, dateAttendance, notificationLogs, selectedDate]);
+  }, [activeStudents, activeTeachers, dateAttendance, dateTeacherAttendance, notificationLogs, selectedDate]);
 
   const classPerformance = useMemo(() => {
     return classes.map((cls) => {
@@ -466,21 +501,55 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
 
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold">Kesiapan Rombel & Notifikasi WA</span>
-            <MessageSquare className="w-4 h-4 text-[#0A3D91]" />
+            <span className="text-xs font-semibold">Kehadiran Guru &amp; Mapel</span>
+            <GraduationCap className="w-4 h-4 text-[#0A3D91]" />
           </div>
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-3xl font-bold font-mono tabular-nums text-slate-900">
-              {executiveStats.waRate}%
+              {executiveStats.teacherRate}%
             </p>
             <span className="text-xs font-mono tabular-nums text-slate-500">
-              {classes.length} Kelas · {activeTeachers.length} Guru
+              {classes.length} Rombel · {activeTeachers.length} Guru
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-3 font-mono tabular-nums">
-            {executiveStats.waDelivered}/{executiveStats.dateNotifsCount} pesan wali terkirim (
-            {formatIndonesianDate(selectedDate)})
+            Hadir: <strong className="text-emerald-700">{executiveStats.tHadir}</strong> · Dinas Luar:{' '}
+            <strong className="text-[#0A3D91]">{executiveStats.tDinas}</strong> · Terlambat:{' '}
+            <strong className="text-amber-700">{executiveStats.tLate}</strong>
           </p>
+        </div>
+      </div>
+
+      {/* Executive Teacher & Subject Teacher Supervision Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <GraduationCap className="w-4 h-4 text-[#0A3D91]" />
+            <h2 className="text-sm font-bold font-display text-slate-900">
+              Supervisi Kehadiran Guru Kelas ({executiveStats.waliCount} Rombel) &amp; Guru Mata Pelajaran ({executiveStats.mapelCount} Mapel)
+            </h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Hadir Tepat: <strong>{executiveStats.tHadir}</strong> · Terlambat: <strong>{executiveStats.tLate}</strong> · Dinas Luar/KKG: <strong>{executiveStats.tDinas}</strong> · Izin/Sakit: <strong>{executiveStats.tIzinSakit}</strong> · Belum Absen: <strong>{executiveStats.tBelum}</strong>
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onNavigate('teacher-attendance')}
+            className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
+            <span>Buka Presensi Guru &amp; Mapel</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('classes')}
+            className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] border border-blue-200 hover:bg-blue-100 rounded-lg flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>Lihat 12 Rombel &amp; Mapel</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

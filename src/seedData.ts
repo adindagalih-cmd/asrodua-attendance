@@ -147,6 +147,43 @@ export const INITIAL_ACADEMIC_YEARS: AcademicYear[] = [
   },
 ];
 
+export const SUBJECT_TEACHER_OPTIONS: Array<{
+  code: string;
+  label: string;
+  shortName: string;
+}> = [
+  {
+    code: 'MAPEL_PAI',
+    label: 'Guru Mapel PAI & Budi Pekerti',
+    shortName: 'PAI & Budi Pekerti',
+  },
+  {
+    code: 'MAPEL_PJOK',
+    label: 'Guru Mapel PJOK (Olahraga)',
+    shortName: 'PJOK (Olahraga)',
+  },
+  {
+    code: 'MAPEL_BING',
+    label: 'Guru Mapel Bahasa Inggris',
+    shortName: 'Bahasa Inggris',
+  },
+  {
+    code: 'MAPEL_BJW',
+    label: 'Guru Mapel Bahasa Jawa (Mulok)',
+    shortName: 'Bahasa Jawa (Mulok)',
+  },
+  {
+    code: 'MAPEL_SENI',
+    label: 'Guru Mapel Seni Budaya',
+    shortName: 'Seni Budaya & Prakarya',
+  },
+  {
+    code: 'MAPEL_TIK',
+    label: 'Guru Mapel Informatika / TIK',
+    shortName: 'Informatika / TIK',
+  },
+];
+
 export const INITIAL_CLASSES: SchoolClass[] = [
   {
     id: 'cls_1a',
@@ -154,6 +191,17 @@ export const INITIAL_CLASSES: SchoolClass[] = [
     grade: 1,
     homeroomTeacherId: 'tch_01',
     homeroomTeacherName: 'Budi Santoso, S.Pd.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'cls_1b',
+    name: 'Kelas 1B',
+    grade: 1,
+    homeroomTeacherId: 'tch_07',
+    homeroomTeacherName: 'Dewi Sartika, S.Pd.SD.',
     academicYear: '2026/2027',
     capacity: 32,
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -171,11 +219,33 @@ export const INITIAL_CLASSES: SchoolClass[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'cls_2b',
+    name: 'Kelas 2B',
+    grade: 2,
+    homeroomTeacherId: 'tch_08',
+    homeroomTeacherName: 'Fajar Nugroho, S.Pd.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'cls_3a',
     name: 'Kelas 3A',
     grade: 3,
     homeroomTeacherId: 'tch_03',
     homeroomTeacherName: 'Ahmad Fauzi, S.Pd.SD.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'cls_3b',
+    name: 'Kelas 3B',
+    grade: 3,
+    homeroomTeacherId: 'tch_09',
+    homeroomTeacherName: 'Lina Marlina, S.Pd.',
     academicYear: '2026/2027',
     capacity: 32,
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -193,6 +263,17 @@ export const INITIAL_CLASSES: SchoolClass[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'cls_4b',
+    name: 'Kelas 4B',
+    grade: 4,
+    homeroomTeacherId: 'tch_10',
+    homeroomTeacherName: 'Arif Budiman, S.Pd.SD.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'cls_5a',
     name: 'Kelas 5A',
     grade: 5,
@@ -204,11 +285,33 @@ export const INITIAL_CLASSES: SchoolClass[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'cls_5b',
+    name: 'Kelas 5B',
+    grade: 5,
+    homeroomTeacherId: 'tch_11',
+    homeroomTeacherName: 'Yuni Astuti, S.Pd.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'cls_6a',
     name: 'Kelas 6A',
     grade: 6,
     homeroomTeacherId: 'tch_06',
     homeroomTeacherName: 'Rina Kusuma, S.Pd.SD.',
+    academicYear: '2026/2027',
+    capacity: 32,
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'cls_6b',
+    name: 'Kelas 6B',
+    grade: 6,
+    homeroomTeacherId: 'tch_12',
+    homeroomTeacherName: 'Dian Purnama, M.Pd.',
     academicYear: '2026/2027',
     capacity: 32,
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -232,6 +335,20 @@ export const INITIAL_TEACHERS: Teacher[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'tch_07',
+    nip: '198806142012012007',
+    fullName: 'Dewi Sartika, S.Pd.SD.',
+    email: 'dewi.sartika@sdnasemrowo2.sch.id',
+    phone: '081231001008',
+    role: 'GURU',
+    classId: 'cls_1b',
+    className: 'Kelas 1B',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'tch_02',
     nip: '198707212011012009',
     fullName: 'Ratna Dewi, S.Pd.',
@@ -240,6 +357,20 @@ export const INITIAL_TEACHERS: Teacher[] = [
     role: 'GURU',
     classId: 'cls_2a',
     className: 'Kelas 2A',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_08',
+    nip: '198911232014021004',
+    fullName: 'Fajar Nugroho, S.Pd.',
+    email: 'fajar.nugroho@sdnasemrowo2.sch.id',
+    phone: '081231001009',
+    role: 'GURU',
+    classId: 'cls_2b',
+    className: 'Kelas 2B',
     status: 'AKTIF',
     userUid: '',
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -260,6 +391,20 @@ export const INITIAL_TEACHERS: Teacher[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'tch_09',
+    nip: '199104022015032006',
+    fullName: 'Lina Marlina, S.Pd.',
+    email: 'lina.marlina@sdnasemrowo2.sch.id',
+    phone: '081231001010',
+    role: 'GURU',
+    classId: 'cls_3b',
+    className: 'Kelas 3B',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'tch_04',
     nip: '199002182015032004',
     fullName: 'Nurul Hidayah, S.Pd.',
@@ -268,6 +413,20 @@ export const INITIAL_TEACHERS: Teacher[] = [
     role: 'GURU',
     classId: 'cls_4a',
     className: 'Kelas 4A',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_10',
+    nip: '198608192011011008',
+    fullName: 'Arif Budiman, S.Pd.SD.',
+    email: 'arif.budiman@sdnasemrowo2.sch.id',
+    phone: '081231001011',
+    role: 'GURU',
+    classId: 'cls_4b',
+    className: 'Kelas 4B',
     status: 'AKTIF',
     userUid: '',
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -288,6 +447,20 @@ export const INITIAL_TEACHERS: Teacher[] = [
     updatedAt: '2026-07-01T07:00:00.000Z',
   },
   {
+    id: 'tch_11',
+    nip: '199201152016012005',
+    fullName: 'Yuni Astuti, S.Pd.',
+    email: 'yuni.astuti@sdnasemrowo2.sch.id',
+    phone: '081231001012',
+    role: 'GURU',
+    classId: 'cls_5b',
+    className: 'Kelas 5B',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
     id: 'tch_06',
     nip: '198512302010012012',
     fullName: 'Rina Kusuma, S.Pd.SD.',
@@ -296,6 +469,90 @@ export const INITIAL_TEACHERS: Teacher[] = [
     role: 'GURU',
     classId: 'cls_6a',
     className: 'Kelas 6A',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_12',
+    nip: '198305272009022003',
+    fullName: 'Dian Purnama, M.Pd.',
+    email: 'dian.purnama@sdnasemrowo2.sch.id',
+    phone: '081231001013',
+    role: 'GURU',
+    classId: 'cls_6b',
+    className: 'Kelas 6B',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_mapel_pai',
+    nip: '197904112005011004',
+    fullName: 'Drs. H. Mulyadi, M.Pd.I.',
+    email: 'mulyadi.pai@sdnasemrowo2.sch.id',
+    phone: '081231001014',
+    role: 'GURU',
+    classId: 'MAPEL_PAI',
+    className: 'Guru Mapel PAI & Budi Pekerti',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_mapel_pjok',
+    nip: '199108172017011002',
+    fullName: 'Rizky Pratama, S.Or.',
+    email: 'rizky.pjok@sdnasemrowo2.sch.id',
+    phone: '081231001015',
+    role: 'GURU',
+    classId: 'MAPEL_PJOK',
+    className: 'Guru Mapel PJOK (Olahraga)',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_mapel_bing',
+    nip: '199309252019032009',
+    fullName: 'Siti Rahmawati, S.Pd.',
+    email: 'siti.bing@sdnasemrowo2.sch.id',
+    phone: '081231001016',
+    role: 'GURU',
+    classId: 'MAPEL_BING',
+    className: 'Guru Mapel Bahasa Inggris',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_mapel_bjw',
+    nip: '198812102014031003',
+    fullName: 'Eko Wahyudi, S.Pd.',
+    email: 'eko.bahasajawa@sdnasemrowo2.sch.id',
+    phone: '081231001017',
+    role: 'GURU',
+    classId: 'MAPEL_BJW',
+    className: 'Guru Mapel Bahasa Jawa (Mulok)',
+    status: 'AKTIF',
+    userUid: '',
+    createdAt: '2026-07-01T07:00:00.000Z',
+    updatedAt: '2026-07-01T07:00:00.000Z',
+  },
+  {
+    id: 'tch_mapel_seni',
+    nip: '199405082020122011',
+    fullName: 'Maya Kartika, S.Sn.',
+    email: 'maya.seni@sdnasemrowo2.sch.id',
+    phone: '081231001018',
+    role: 'GURU',
+    classId: 'MAPEL_SENI',
+    className: 'Guru Mapel Seni Budaya',
     status: 'AKTIF',
     userUid: '',
     createdAt: '2026-07-01T07:00:00.000Z',
@@ -360,8 +617,8 @@ const RAW_STUDENTS: Array<{
     fullName: 'Bagas Satrio Wibowo',
     gender: 'L',
     birthPlaceDate: 'Surabaya, 05 Januari 2019',
-    classId: 'cls_1a',
-    className: 'Kelas 1A',
+    classId: 'cls_1b',
+    className: 'Kelas 1B',
     parentName: 'Agus Wibowo',
     parentWhatsapp: '6281234001003',
   },
@@ -396,8 +653,8 @@ const RAW_STUDENTS: Array<{
     fullName: 'Farah Nabila Azzahra',
     gender: 'P',
     birthPlaceDate: 'Surabaya, 03 April 2018',
-    classId: 'cls_2a',
-    className: 'Kelas 2A',
+    classId: 'cls_2b',
+    className: 'Kelas 2B',
     parentName: 'Hasan Basri',
     parentWhatsapp: '6281234001006',
   },
@@ -432,8 +689,8 @@ const RAW_STUDENTS: Array<{
     fullName: 'Ilham Maulana Ibrahim',
     gender: 'L',
     birthPlaceDate: 'Surabaya, 09 September 2017',
-    classId: 'cls_3a',
-    className: 'Kelas 3A',
+    classId: 'cls_3b',
+    className: 'Kelas 3B',
     parentName: 'Anwar Ibrahim',
     parentWhatsapp: '6281234001009',
   },
@@ -468,8 +725,8 @@ const RAW_STUDENTS: Array<{
     fullName: 'Laila Nur Syifa',
     gender: 'P',
     birthPlaceDate: 'Surabaya, 07 Desember 2016',
-    classId: 'cls_4a',
-    className: 'Kelas 4A',
+    classId: 'cls_4b',
+    className: 'Kelas 4B',
     parentName: 'Zainal Abidin',
     parentWhatsapp: '6281234001012',
   },
@@ -504,8 +761,8 @@ const RAW_STUDENTS: Array<{
     fullName: 'Naufal Dzakwan Pratama',
     gender: 'L',
     birthPlaceDate: 'Surabaya, 21 Agustus 2015',
-    classId: 'cls_5a',
-    className: 'Kelas 5A',
+    classId: 'cls_5b',
+    className: 'Kelas 5B',
     parentName: 'Yudi Pratama',
     parentWhatsapp: '6281234001015',
   },
@@ -540,12 +797,41 @@ const RAW_STUDENTS: Array<{
     fullName: 'Zahra Amalia Khairunnisa',
     gender: 'P',
     birthPlaceDate: 'Surabaya, 02 Februari 2014',
-    classId: 'cls_6a',
-    className: 'Kelas 6A',
+    classId: 'cls_6b',
+    className: 'Kelas 6B',
     parentName: 'Mulyono',
     parentWhatsapp: '6281234001018',
   },
 ];
+
+export const SAMPLE_TEACHER_ATTENDANCE_BY_ID: Record<
+  string,
+  {
+    status: TeacherAttendanceStatus;
+    checkInTime: string;
+    checkOutTime: string;
+    notes: string;
+  }
+> = {
+  tch_01: { status: 'HADIR', checkInTime: '06:22:14', checkOutTime: '14:05:10', notes: 'Scan QR Wali Kelas 1A Tepat Waktu' },
+  tch_07: { status: 'HADIR', checkInTime: '06:24:30', checkOutTime: '14:03:00', notes: 'Scan QR Wali Kelas 1B Tepat Waktu' },
+  tch_02: { status: 'HADIR', checkInTime: '06:28:40', checkOutTime: '14:02:18', notes: 'Scan QR Wali Kelas 2A Tepat Waktu' },
+  tch_08: { status: 'HADIR', checkInTime: '06:30:12', checkOutTime: '', notes: 'Scan QR Wali Kelas 2B Tepat Waktu' },
+  tch_03: { status: 'HADIR', checkInTime: '06:31:05', checkOutTime: '', notes: 'Scan QR Wali Kelas 3A Tepat Waktu' },
+  tch_09: { status: 'IZIN', checkInTime: '06:45:00', checkOutTime: '', notes: 'Izin pemeriksaan kesehatan rutin' },
+  tch_04: { status: 'DINAS_LUAR', checkInTime: '06:40:00', checkOutTime: '', notes: 'Rapat Koordinasi KKG Dinas Pendidikan Kota Surabaya' },
+  tch_10: { status: 'HADIR', checkInTime: '06:27:45', checkOutTime: '14:08:20', notes: 'Scan QR Wali Kelas 4B Tepat Waktu' },
+  tch_05: { status: 'HADIR', checkInTime: '06:25:19', checkOutTime: '14:10:00', notes: 'Scan QR Wali Kelas 5A Tepat Waktu' },
+  tch_11: { status: 'HADIR', checkInTime: '06:29:50', checkOutTime: '', notes: 'Scan QR Wali Kelas 5B Tepat Waktu' },
+  tch_06: { status: 'TERLAMBAT', checkInTime: '07:06:30', checkOutTime: '', notes: 'Kendala lalu lintas Jl. Asemraya' },
+  tch_12: { status: 'HADIR', checkInTime: '06:21:10', checkOutTime: '14:06:44', notes: 'Scan QR Wali Kelas 6B Tepat Waktu' },
+  tch_mapel_pai: { status: 'HADIR', checkInTime: '06:19:40', checkOutTime: '14:12:05', notes: 'Scan QR Guru Mapel PAI & Budi Pekerti' },
+  tch_mapel_pjok: { status: 'HADIR', checkInTime: '06:15:22', checkOutTime: '14:04:30', notes: 'Scan QR Guru Mapel PJOK (Olahraga)' },
+  tch_mapel_bing: { status: 'HADIR', checkInTime: '06:32:18', checkOutTime: '', notes: 'Scan QR Guru Mapel Bahasa Inggris' },
+  tch_mapel_bjw: { status: 'DINAS_LUAR', checkInTime: '06:50:00', checkOutTime: '', notes: 'Workshop Kurikulum Mulok Bahasa Jawa Kota Surabaya' },
+  tch_mapel_seni: { status: 'HADIR', checkInTime: '06:34:05', checkOutTime: '', notes: 'Scan QR Guru Mapel Seni Budaya' },
+  tch_admin: { status: 'HADIR', checkInTime: '06:18:55', checkOutTime: '14:15:30', notes: 'Presensi Staf Tata Usaha Tepat Waktu' },
+};
 
 export async function seedSchoolDatabase(
   actorUid: string,
@@ -591,24 +877,9 @@ export async function seedSchoolDatabase(
   }
 
   // 4. Teachers + Today's Sample Teacher Attendance
-  const sampleTeacherAttendance: Array<{
-    status: TeacherAttendanceStatus;
-    checkInTime: string;
-    checkOutTime: string;
-    notes: string;
-  } | null> = [
-    { status: 'HADIR', checkInTime: '06:22:14', checkOutTime: '14:05:10', notes: 'Scan QR Guru Tepat Waktu' },
-    { status: 'HADIR', checkInTime: '06:28:40', checkOutTime: '14:02:18', notes: 'Scan QR Guru Tepat Waktu' },
-    { status: 'HADIR', checkInTime: '06:31:05', checkOutTime: '', notes: 'Scan QR Guru Tepat Waktu' },
-    { status: 'DINAS_LUAR', checkInTime: '06:40:00', checkOutTime: '', notes: 'Rapat Koordinasi KKG Dinas Pendidikan Kota Surabaya' },
-    { status: 'HADIR', checkInTime: '06:25:19', checkOutTime: '14:10:00', notes: 'Scan QR Guru Tepat Waktu' },
-    { status: 'TERLAMBAT', checkInTime: '07:06:30', checkOutTime: '', notes: 'Kendala lalu lintas Jl. Asemraya' },
-    { status: 'HADIR', checkInTime: '06:18:55', checkOutTime: '14:15:30', notes: 'Presensi Staf Tata Usaha Tepat Waktu' },
-  ];
-
-  INITIAL_TEACHERS.forEach((tch, idx) => {
+  INITIAL_TEACHERS.forEach((tch) => {
     batch.set(doc(db, 'teachers', tch.id), tch);
-    const tSample = sampleTeacherAttendance[idx];
+    const tSample = SAMPLE_TEACHER_ATTENDANCE_BY_ID[tch.id];
     if (tSample) {
       const tAttId = `${todayStr}_${tch.id}`;
       const qrCodeId = getTeacherQrCodeId(tch.id, tch.nip);
@@ -627,7 +898,7 @@ export async function seedSchoolDatabase(
         checkOutTime: tSample.checkOutTime,
         session: tSample.checkOutTime
           ? 'PULANG'
-          : tSample.status === 'DINAS_LUAR'
+          : tSample.status === 'DINAS_LUAR' || tSample.status === 'IZIN'
           ? 'MANUAL'
           : 'MASUK',
         qrTokenUsed: qrCodeId,

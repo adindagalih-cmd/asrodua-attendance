@@ -41,9 +41,11 @@ import {
   SiteContent,
   Student,
   Teacher,
+  TeacherAttendanceRecord,
   UserProfile,
 } from '../types';
 import { formatIndonesianDate, getTodayDateString } from '../firebase';
+import { isSubjectTeacher } from './TeachersClassesView';
 
 interface DashboardViewProps {
   userProfile: UserProfile;
@@ -51,6 +53,7 @@ interface DashboardViewProps {
   teachers: Teacher[];
   classes: SchoolClass[];
   attendance: AttendanceRecord[];
+  teacherAttendance: TeacherAttendanceRecord[];
   settings: AttendanceSettings;
   siteContent: SiteContent;
   announcements: Announcement[];
@@ -71,6 +74,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   teachers,
   classes,
   attendance,
+  teacherAttendance,
   settings,
   siteContent,
   announcements,
@@ -154,6 +158,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       percentage,
     };
   }, [activeStudents, dateAttendance]);
+
+  const teacherStats = useMemo(() => {
+    const activeTeachers = teachers.filter((t) => t.status === 'AKTIF');
+    const waliCount = activeTeachers.filter((t) => t.role === 'GURU' && !isSubjectTeacher(t)).length;
+    const mapelCount = activeTeachers.filter((t) => isSubjectTeacher(t)).length;
+    const dateTchAtt = teacherAttendance.filter((r) => r.date === selectedDate);
+    const hadir = dateTchAtt.filter((r) => r.status === 'HADIR').length;
+    const terlambat = dateTchAtt.filter((r) => r.status === 'TERLAMBAT').length;
+    const dinasLuar = dateTchAtt.filter((r) => r.status === 'DINAS_LUAR').length;
+    const izinSakit = dateTchAtt.filter((r) => r.status === 'IZIN' || r.status === 'SAKIT').length;
+    const alpa = dateTchAtt.filter((r) => r.status === 'ALPA').length;
+    const recordedIds = new Set(dateTchAtt.map((r) => r.teacherId));
+    const belumAbsen = activeTeachers.filter((t) => !recordedIds.has(t.id)).length;
+    const presentCount = hadir + terlambat + dinasLuar;
+    const rate =
+      activeTeachers.length > 0
+        ? Math.round((presentCount / activeTeachers.length) * 1000) / 10
+        : 0;
+
+    return {
+      totalTeachers: activeTeachers.length,
+      waliCount,
+      mapelCount,
+      hadir,
+      terlambat,
+      dinasLuar,
+      izinSakit,
+      alpa,
+      belumAbsen,
+      presentCount,
+      rate,
+    };
+  }, [teachers, teacherAttendance, selectedDate]);
 
   // Students who have not scanned / do not have an attendance record on selectedDate
   const unrecordedStudents = useMemo(() => {
@@ -269,7 +306,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
           <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            Dashboard Monitoring Kehadiran Siswa
+            Dashboard Monitoring Kehadiran Siswa, Guru Kelas &amp; Guru Mapel
           </h1>
         </div>
 
@@ -279,7 +316,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             onChange={(e) => setSelectedClassFilter(e.target.value)}
             className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-[#0A3D91]"
           >
-            <option value="ALL">Semua Kelas (1A – 6A)</option>
+            <option value="ALL">Semua Rombel (Kelas 1A – 6B)</option>
             {classes.map((cls) => (
               <option key={cls.id} value={cls.id}>
                 {cls.name}
@@ -312,9 +349,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Database Sekolah Masih Kosong
             </h2>
             <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-              Muat data awal {siteContent.schoolName} (6 Kelas, 7 Guru, 18 Siswa beserta QR Code
-              permanen dan sampel absensi hari ini) atau tambahkan data siswa secara manual/import
-              Excel.
+              Muat data awal {siteContent.schoolName} (12 Rombel Kelas 1A–6B, 18 Guru Kelas/Mapel &amp; Staf,
+              18 Siswa beserta QR Code permanen dan sampel absensi hari ini) atau tambahkan data
+              secara manual/import Excel.
             </p>
           </div>
           <button
@@ -560,7 +597,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="bg-[#0A3D91] text-white rounded-xl p-4">
           <div className="flex items-center justify-between text-blue-200 mb-2">
-            <span className="text-xs font-medium">Kehadiran</span>
+            <span className="text-xs font-medium">Kehadiran Siswa</span>
             <CheckCircle2 className="w-4 h-4 text-[#D4AF37]" />
           </div>
           <p className="text-2xl font-bold font-mono tabular-nums text-white">
@@ -569,6 +606,98 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-xs text-blue-200 mt-1 font-mono tabular-nums">
             {stats.totalPresent}/{stats.totalStudents} Siswa
           </p>
+        </div>
+      </div>
+
+      {/* Ringkasan Kehadiran Guru Kelas (Rombel), Guru Mata Pelajaran & Staf */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-[#0A3D91]" />
+              <h2 className="text-sm font-bold font-display text-slate-900">
+                Ringkasan Kehadiran Guru Kelas (Rombel 1A–6B), Guru Mata Pelajaran &amp; Staf
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Status presensi pendidik ({teacherStats.waliCount} Guru Wali Rombel · {teacherStats.mapelCount} Guru Mata Pelajaran) pada {formatIndonesianDate(selectedDate)}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('teacher-attendance')}
+              className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>Kelola Absensi Guru &amp; Mapel</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('teachers')}
+              className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Data Guru &amp; Mapel</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-[#F5F8FF] border border-slate-200">
+            <p className="text-slate-500 font-medium">Total Guru &amp; Staf</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-1">
+              {teacherStats.totalTeachers}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {teacherStats.waliCount} Rombel · {teacherStats.mapelCount} Mapel
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+            <p className="text-emerald-800 font-medium">Hadir Tepat Waktu</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-emerald-700 mt-1">
+              {teacherStats.hadir}
+            </p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">Scan QR / Mandiri</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200">
+            <p className="text-amber-800 font-medium">Terlambat</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-amber-700 mt-1">
+              {teacherStats.terlambat}
+            </p>
+            <p className="text-[11px] text-amber-700 mt-0.5">&gt; {settings.checkInDeadline} WIB</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
+            <p className="text-[#0A3D91] font-medium">Dinas Luar / KKG</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-[#0A3D91] mt-1">
+              {teacherStats.dinasLuar}
+            </p>
+            <p className="text-[11px] text-slate-600 mt-0.5">Tugas Resmi</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-sky-50/70 border border-sky-200">
+            <p className="text-sky-800 font-medium">Izin / Sakit / Alpa</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-sky-700 mt-1">
+              {teacherStats.izinSakit + teacherStats.alpa}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Belum Absen: {teacherStats.belumAbsen}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[#0A3D91] text-white">
+            <p className="text-blue-200 font-medium">% Kehadiran Guru</p>
+            <p className="text-xl font-bold font-mono tabular-nums text-[#D4AF37] mt-1">
+              {teacherStats.rate}%
+            </p>
+            <p className="text-[11px] text-blue-100 mt-0.5 font-mono tabular-nums">
+              {teacherStats.presentCount}/{teacherStats.totalTeachers} Aktif
+            </p>
+          </div>
         </div>
       </div>
 

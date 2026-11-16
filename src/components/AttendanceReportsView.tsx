@@ -10,14 +10,21 @@ import {
   History,
   Download,
   Filter,
+  Users,
+  UserCheck,
+  GraduationCap,
 } from 'lucide-react';
 import {
   AttendanceRecord,
   AttendanceSettings,
   AttendanceStatus,
   AuditLog,
+  PageId,
   SchoolClass,
   Student,
+  Teacher,
+  TeacherAttendanceRecord,
+  TeacherAttendanceStatus,
   UserProfile,
 } from '../types';
 import { formatIndonesianDate, getTodayDateString } from '../firebase';
@@ -25,13 +32,18 @@ import {
   exportAttendanceToExcel,
   exportAttendanceToPdf,
   exportFullAttendanceRangeToExcel,
+  exportTeacherAttendanceToExcel,
+  exportTeacherAttendanceToPdf,
 } from '../utils/exportUtils';
+import { TeacherAttendanceView } from './TeacherAttendanceView';
 
 interface AttendanceDataViewProps {
   userProfile: UserProfile;
   students: Student[];
+  teachers: Teacher[];
   classes: SchoolClass[];
   attendance: AttendanceRecord[];
+  teacherAttendance: TeacherAttendanceRecord[];
   auditLogs: AuditLog[];
   settings: AttendanceSettings;
   onUpdateAttendanceManual: (
@@ -42,18 +54,37 @@ interface AttendanceDataViewProps {
     checkOutTime: string,
     reason: string
   ) => Promise<void>;
+  onRecordTeacherScanOrSelf: (
+    teacher: Teacher,
+    session: 'MASUK' | 'PULANG'
+  ) => Promise<void>;
+  onUpdateTeacherAttendanceManual: (
+    teacher: Teacher,
+    date: string,
+    status: TeacherAttendanceStatus,
+    checkInTime: string,
+    checkOutTime: string,
+    reason: string
+  ) => Promise<void>;
+  onNavigate: (page: PageId) => void;
 }
 
 export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
   userProfile,
   students,
+  teachers,
   classes,
   attendance,
+  teacherAttendance,
   auditLogs,
   settings,
   onUpdateAttendanceManual,
+  onRecordTeacherScanOrSelf,
+  onUpdateTeacherAttendanceManual,
+  onNavigate,
 }) => {
   const todayStr = getTodayDateString();
+  const [targetMode, setTargetMode] = useState<'SISWA' | 'GURU'>('SISWA');
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [classFilter, setClassFilter] = useState<string>(
     userProfile.role === 'GURU' && userProfile.assignedClassId && userProfile.assignedClassId !== 'ALL'
@@ -172,7 +203,7 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
       : exportClassId;
     const classLabel =
       effectiveClassId === 'ALL'
-        ? 'Semua Kelas'
+        ? 'Semua Rombel'
         : classes.find((c) => c.id === effectiveClassId)?.name || effectiveClassId;
 
     exportFullAttendanceRangeToExcel({
@@ -257,259 +288,308 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            Data Absensi Harian & Koreksi Kehadiran
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Pantau status hadir, terlambat, izin, sakit, dan alpa siswa pada{' '}
-            {formatIndonesianDate(selectedDate)}. Setiap koreksi dicatat ke dalam Audit Log.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-2 text-xs font-mono tabular-nums bg-[#F5F8FF] border border-slate-200 rounded-lg"
-          />
-          <select
-            value={classFilter}
-            onChange={(e) => setClassFilter(e.target.value)}
-            className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg"
-          >
-            <option value="ALL">Semua Kelas</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          {canExportExcel && (
-            <button
-              onClick={openExportModal}
-              className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Export Excel (.xlsx)</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {exportSuccessMsg && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
-          <span className="font-medium">{exportSuccessMsg}</span>
+      {/* Top Mode Switcher: Siswa (Per Rombel) vs Guru Kelas & Guru Mapel */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-[#F5F8FF] border border-slate-200 rounded-xl">
           <button
-            onClick={() => setExportSuccessMsg(null)}
-            className="font-bold cursor-pointer"
+            type="button"
+            onClick={() => setTargetMode('SISWA')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+              targetMode === 'SISWA'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
           >
-            Tutup
+            <Users className="w-4 h-4 text-[#D4AF37]" />
+            <span>Absensi Siswa ({classes.length} Rombel)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetMode('GURU')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+              targetMode === 'GURU'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <UserCheck className="w-4 h-4 text-[#D4AF37]" />
+            <span>Absensi Guru Kelas, Guru Mapel &amp; Staf ({teachers.length})</span>
           </button>
         </div>
-      )}
 
-      {/* Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            aria-label="Cari siswa berdasarkan nama"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama siswa, NIS, atau NISN..."
-            className="w-full pl-10 pr-9 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4DA8FF]/40 focus:border-[#0A3D91]"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Hapus pencarian"
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        <p className="text-xs text-slate-500 px-2">
+          Pilih tab di samping untuk mengelola absensi <strong>Siswa per Rombel</strong> atau{' '}
+          <strong>Guru Wali Kelas &amp; Guru Mata Pelajaran</strong>.
+        </p>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative min-w-[200px] flex-1 sm:flex-initial">
-            <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <select
-              aria-label="Filter status kehadiran"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full pl-8 pr-8 py-2 text-xs font-semibold text-slate-700 bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4DA8FF]/40 focus:border-[#0A3D91] cursor-pointer"
-            >
-              <option value="ALL">Semua Status</option>
-              <option value="HADIR">Hadir</option>
-              <option value="TERLAMBAT">Terlambat</option>
-              <option value="IZIN">Izin</option>
-              <option value="SAKIT">Sakit</option>
-              <option value="ALPA">Alpa</option>
-              <option value="BELUM_SCAN">Belum Scan</option>
-            </select>
+      {targetMode === 'GURU' ? (
+        <TeacherAttendanceView
+          userProfile={userProfile}
+          teachers={teachers}
+          teacherAttendance={teacherAttendance}
+          settings={settings}
+          onRecordTeacherScanOrSelf={onRecordTeacherScanOrSelf}
+          onUpdateTeacherAttendanceManual={onUpdateTeacherAttendanceManual}
+          onNavigate={onNavigate}
+        />
+      ) : (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
+                Data Absensi Harian Siswa (Per Rombel) &amp; Koreksi Kehadiran
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pantau status hadir, terlambat, izin, sakit, dan alpa siswa pada{' '}
+                {formatIndonesianDate(selectedDate)}. Setiap koreksi dicatat ke dalam Audit Log.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-2 text-xs font-mono tabular-nums bg-[#F5F8FF] border border-slate-200 rounded-lg"
+              />
+              <select
+                value={classFilter}
+                onChange={(e) => setClassFilter(e.target.value)}
+                className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg"
+              >
+                <option value="ALL">Semua Rombel (1A – 6B)</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              {canExportExcel && (
+                <button
+                  onClick={openExportModal}
+                  className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <span>Export Excel (.xlsx)</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
-            Menampilkan <strong className="text-slate-800">{combinedRows.length}</strong> dari{' '}
-            <strong className="text-slate-800">{scopedActiveStudents.length}</strong> siswa
-          </span>
-
-          {(searchQuery.trim() !== '' || statusFilter !== 'ALL') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setStatusFilter('ALL');
-              }}
-              className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap cursor-pointer"
-            >
-              Reset Filter
-            </button>
+          {exportSuccessMsg && (
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
+              <span className="font-medium">{exportSuccessMsg}</span>
+              <button
+                onClick={() => setExportSuccessMsg(null)}
+                className="font-bold cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
           )}
-        </div>
-      </div>
 
-      {/* Main Attendance Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-[#F5F8FF] text-xs font-semibold text-slate-600">
-                <th className="py-3 px-4">NIS</th>
-                <th className="py-3 px-4">Nama Siswa</th>
-                <th className="py-3 px-4">Kelas</th>
-                <th className="py-3 px-4">Status Kehadiran</th>
-                <th className="py-3 px-4">Jam Masuk</th>
-                <th className="py-3 px-4">Jam Pulang</th>
-                <th className="py-3 px-4">Keterangan & Verifikator</th>
-                {canManualEdit && <th className="py-3 px-4 text-right">Koreksi</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {combinedRows.map(({ student, record }) => (
-                <tr key={student.id} className="hover:bg-slate-50/80">
-                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
-                    {student.nis}
-                  </td>
-                  <td className="py-3 px-4 font-semibold text-slate-900">{student.fullName}</td>
-                  <td className="py-3 px-4 text-slate-700">{student.className}</td>
-                  <td className="py-3 px-4">
-                    {!record ? (
-                      <span className="text-slate-400 font-medium">BELUM SCAN</span>
-                    ) : (
-                      <span
-                        className={`font-bold ${
-                          record.status === 'HADIR'
-                            ? 'text-emerald-700'
-                            : record.status === 'TERLAMBAT'
-                            ? 'text-amber-700'
-                            : record.status === 'ALPA'
-                            ? 'text-rose-700'
-                            : 'text-sky-700'
-                        }`}
-                      >
-                        {record.status}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
-                    {record?.checkInTime || '-'}
-                  </td>
-                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
-                    {record?.checkOutTime || '-'}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">
-                    {record ? (
-                      <div>
-                        <p>{record.notes || '-'}</p>
-                        <p className="text-[11px] text-slate-400">
-                          Oleh: {record.verifiedByName} ({record.session})
-                        </p>
-                      </div>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                  {canManualEdit && (
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => openCorrectionModal(student, record)}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                        <span>Ubah Status</span>
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {combinedRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={canManualEdit ? 8 : 7}
-                    className="py-10 px-4 text-center text-slate-500"
-                  >
-                    <p className="font-semibold text-slate-700">
-                      Tidak ada data siswa yang sesuai dengan filter.
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Ubah kata kunci pencarian, status kehadiran, atau pilih kelas lain.
-                    </p>
-                  </td>
-                </tr>
+          {/* Filter Bar */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                aria-label="Cari siswa berdasarkan nama"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama siswa, NIS, atau NISN..."
+                className="w-full pl-10 pr-9 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4DA8FF]/40 focus:border-[#0A3D91]"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Hapus pencarian"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
 
-      {/* Recent Audit Logs Section */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <History className="w-4 h-4 text-[#0A3D91]" />
-          <h2 className="text-sm font-bold font-display text-slate-900">
-            Audit Log Perubahan Data Kehadiran Terbaru
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-[#F5F8FF] text-slate-600 font-semibold">
-                <th className="py-2 px-3">Waktu</th>
-                <th className="py-2 px-3">Aktor</th>
-                <th className="py-2 px-3">Aksi</th>
-                <th className="py-2 px-3">Target</th>
-                <th className="py-2 px-3">Perubahan & Alasan</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {auditLogs.slice(0, 6).map((log) => (
-                <tr key={log.id}>
-                  <td className="py-2 px-3 font-mono tabular-nums text-slate-500">
-                    {log.createdAt.slice(0, 19).replace('T', ' ')}
-                  </td>
-                  <td className="py-2 px-3 font-semibold text-slate-800">
-                    {log.actorName} ({log.actorRole})
-                  </td>
-                  <td className="py-2 px-3 font-mono text-[#0A3D91]">{log.action}</td>
-                  <td className="py-2 px-3 font-medium text-slate-800">{log.targetName}</td>
-                  <td className="py-2 px-3 text-slate-600">
-                    <span className="text-slate-400">{log.previousValue}</span> →{' '}
-                    <strong className="text-slate-800">{log.newValue}</strong> · Alasan:{' '}
-                    <em>{log.reason}</em>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+                <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <select
+                  aria-label="Filter status kehadiran"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full pl-8 pr-8 py-2 text-xs font-semibold text-slate-700 bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4DA8FF]/40 focus:border-[#0A3D91] cursor-pointer"
+                >
+                  <option value="ALL">Semua Status</option>
+                  <option value="HADIR">Hadir</option>
+                  <option value="TERLAMBAT">Terlambat</option>
+                  <option value="IZIN">Izin</option>
+                  <option value="SAKIT">Sakit</option>
+                  <option value="ALPA">Alpa</option>
+                  <option value="BELUM_SCAN">Belum Scan</option>
+                </select>
+              </div>
+
+              <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                Menampilkan <strong className="text-slate-800">{combinedRows.length}</strong> dari{' '}
+                <strong className="text-slate-800">{scopedActiveStudents.length}</strong> siswa
+              </span>
+
+              {(searchQuery.trim() !== '' || statusFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setStatusFilter('ALL');
+                  }}
+                  className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap cursor-pointer"
+                >
+                  Reset Filter
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Main Attendance Table */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-[#F5F8FF] text-xs font-semibold text-slate-600">
+                    <th className="py-3 px-4">NIS</th>
+                    <th className="py-3 px-4">Nama Siswa</th>
+                    <th className="py-3 px-4">Rombel</th>
+                    <th className="py-3 px-4">Status Kehadiran</th>
+                    <th className="py-3 px-4">Jam Masuk</th>
+                    <th className="py-3 px-4">Jam Pulang</th>
+                    <th className="py-3 px-4">Keterangan &amp; Verifikator</th>
+                    {canManualEdit && <th className="py-3 px-4 text-right">Koreksi</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {combinedRows.map(({ student, record }) => (
+                    <tr key={student.id} className="hover:bg-slate-50/80">
+                      <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
+                        {student.nis}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-900">{student.fullName}</td>
+                      <td className="py-3 px-4 text-slate-700">{student.className}</td>
+                      <td className="py-3 px-4">
+                        {!record ? (
+                          <span className="text-slate-400 font-medium">BELUM SCAN</span>
+                        ) : (
+                          <span
+                            className={`font-bold ${
+                              record.status === 'HADIR'
+                                ? 'text-emerald-700'
+                                : record.status === 'TERLAMBAT'
+                                ? 'text-amber-700'
+                                : record.status === 'ALPA'
+                                ? 'text-rose-700'
+                                : 'text-sky-700'
+                            }`}
+                          >
+                            {record.status}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
+                        {record?.checkInTime || '-'}
+                      </td>
+                      <td className="py-3 px-4 font-mono tabular-nums text-slate-700">
+                        {record?.checkOutTime || '-'}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">
+                        {record ? (
+                          <div>
+                            <p>{record.notes || '-'}</p>
+                            <p className="text-[11px] text-slate-400">
+                              Oleh: {record.verifiedByName} ({record.session})
+                            </p>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      {canManualEdit && (
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => openCorrectionModal(student, record)}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Ubah Status</span>
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {combinedRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={canManualEdit ? 8 : 7}
+                        className="py-10 px-4 text-center text-slate-500"
+                      >
+                        <p className="font-semibold text-slate-700">
+                          Tidak ada data siswa yang sesuai dengan filter.
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Ubah kata kunci pencarian, status kehadiran, atau pilih rombel lain.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Recent Audit Logs Section */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <History className="w-4 h-4 text-[#0A3D91]" />
+              <h2 className="text-sm font-bold font-display text-slate-900">
+                Audit Log Perubahan Data Kehadiran Terbaru
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-[#F5F8FF] text-slate-600 font-semibold">
+                    <th className="py-2 px-3">Waktu</th>
+                    <th className="py-2 px-3">Aktor</th>
+                    <th className="py-2 px-3">Aksi</th>
+                    <th className="py-2 px-3">Target</th>
+                    <th className="py-2 px-3">Perubahan &amp; Alasan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {auditLogs.slice(0, 6).map((log) => (
+                    <tr key={log.id}>
+                      <td className="py-2 px-3 font-mono tabular-nums text-slate-500">
+                        {log.createdAt.slice(0, 19).replace('T', ' ')}
+                      </td>
+                      <td className="py-2 px-3 font-semibold text-slate-800">
+                        {log.actorName} ({log.actorRole})
+                      </td>
+                      <td className="py-2 px-3 font-mono text-[#0A3D91]">{log.action}</td>
+                      <td className="py-2 px-3 font-medium text-slate-800">{log.targetName}</td>
+                      <td className="py-2 px-3 text-slate-600">
+                        <span className="text-slate-400">{log.previousValue}</span> →{' '}
+                        <strong className="text-slate-800">{log.newValue}</strong> · Alasan:{' '}
+                        <em>{log.reason}</em>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Modal Koreksi Kehadiran */}
       {editingTarget && (
@@ -604,7 +684,7 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
                   className="px-4 py-2 font-semibold text-white bg-[#0A3D91] rounded-lg flex items-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Simpan & Catat Audit</span>
+                  <span>Simpan &amp; Catat Audit</span>
                 </button>
               </div>
             </form>
@@ -624,7 +704,7 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
                     Export Data Absensi ke Excel (.xlsx)
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Unduh catatan kehadiran lengkap berdasarkan rentang tanggal atau kelas
+                    Unduh catatan kehadiran lengkap berdasarkan rentang tanggal atau rombel
                   </p>
                 </div>
               </div>
@@ -637,7 +717,6 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
             </div>
 
             <form onSubmit={handleConfirmExportExcel} className="space-y-4 text-xs">
-              {/* Quick Date Range Presets */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1.5">
                   Pilih Cepat Rentang Tanggal
@@ -715,7 +794,7 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Filter Kelas {isGuruAssignedOnly ? '(Kelas Ampuan)' : ''}
+                    Filter Rombel {isGuruAssignedOnly ? '(Rombel Ampuan)' : ''}
                   </label>
                   <select
                     value={isGuruAssignedOnly ? userProfile.assignedClassId : exportClassId}
@@ -723,7 +802,7 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
                     onChange={(e) => setExportClassId(e.target.value)}
                     className="w-full px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg disabled:opacity-75"
                   >
-                    {!isGuruAssignedOnly && <option value="ALL">Semua Kelas</option>}
+                    {!isGuruAssignedOnly && <option value="ALL">Semua Rombel</option>}
                     {classes.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -762,7 +841,6 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
                 </label>
               )}
 
-              {/* Preview Box */}
               <div className="p-3.5 rounded-xl bg-[#F5F8FF] border border-slate-200 space-y-1">
                 <p className="font-semibold text-slate-800">
                   Ringkasan Data yang Akan Diekspor:
@@ -807,19 +885,26 @@ export const AttendanceDataView: React.FC<AttendanceDataViewProps> = ({
 };
 
 interface AttendanceReportsViewProps {
+  userProfile: UserProfile;
   students: Student[];
+  teachers: Teacher[];
   classes: SchoolClass[];
   attendance: AttendanceRecord[];
+  teacherAttendance: TeacherAttendanceRecord[];
   settings: AttendanceSettings;
 }
 
 export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
+  userProfile,
   students,
+  teachers,
   classes,
   attendance,
+  teacherAttendance,
   settings,
 }) => {
   const todayStr = getTodayDateString();
+  const [reportTarget, setReportTarget] = useState<'SISWA' | 'GURU'>('SISWA');
   const [reportTab, setReportTab] = useState<
     'HARIAN' | 'MINGGUAN' | 'BULANAN' | 'TAHUNAN' | 'PER_SISWA' | 'PER_KELAS'
   >('HARIAN');
@@ -830,6 +915,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
   const [filterClassId, setFilterClassId] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterStudentQuery, setFilterStudentQuery] = useState('');
+  const [teacherCategoryFilter, setTeacherCategoryFilter] = useState<
+    'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
+  >('ALL');
 
   const filteredRecords = useMemo(() => {
     const q = filterStudentQuery.toLowerCase().trim();
@@ -854,6 +942,85 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     filterStatus,
     filterStudentQuery,
   ]);
+
+  const filteredTeacherRecords = useMemo(() => {
+    const q = filterStudentQuery.toLowerCase().trim();
+    return teacherAttendance.filter((r) => {
+      if (reportTab === 'HARIAN' && filterDate && r.date !== filterDate) return false;
+      if (reportTab === 'BULANAN' && filterMonth && !r.date.startsWith(filterMonth)) return false;
+      if (reportTab === 'TAHUNAN' && filterYear && !r.date.startsWith(filterYear)) return false;
+      const isMapel =
+        r.classId.startsWith('MAPEL_') || r.className.toLowerCase().includes('mapel');
+      const isWali = r.role === 'GURU' && !isMapel && r.classId !== 'ALL';
+      if (teacherCategoryFilter === 'WALI_KELAS' && !isWali) return false;
+      if (teacherCategoryFilter === 'GURU_MAPEL' && !isMapel) return false;
+      if (teacherCategoryFilter === 'STAF' && (isWali || isMapel)) return false;
+      if (filterStatus !== 'ALL' && r.status !== filterStatus) return false;
+      if (
+        q &&
+        !r.teacherName.toLowerCase().includes(q) &&
+        !r.nip.toLowerCase().includes(q) &&
+        !r.className.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    teacherAttendance,
+    reportTab,
+    filterDate,
+    filterMonth,
+    filterYear,
+    teacherCategoryFilter,
+    filterStatus,
+    filterStudentQuery,
+  ]);
+
+  const teacherRecapRows = useMemo(() => {
+    const q = filterStudentQuery.toLowerCase().trim();
+    return teachers
+      .filter((t) => {
+        if (t.status !== 'AKTIF') return false;
+        const isMapel =
+          t.classId.startsWith('MAPEL_') || t.className.toLowerCase().includes('mapel');
+        const isWali = t.role === 'GURU' && !isMapel && t.classId !== 'ALL';
+        if (teacherCategoryFilter === 'WALI_KELAS' && !isWali) return false;
+        if (teacherCategoryFilter === 'GURU_MAPEL' && !isMapel) return false;
+        if (teacherCategoryFilter === 'STAF' && (isWali || isMapel)) return false;
+        if (
+          q &&
+          !t.fullName.toLowerCase().includes(q) &&
+          !t.nip.toLowerCase().includes(q) &&
+          !t.className.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((t) => {
+        const recs = teacherAttendance.filter((a) => a.teacherId === t.id);
+        const hadir = recs.filter((a) => a.status === 'HADIR').length;
+        const terlambat = recs.filter((a) => a.status === 'TERLAMBAT').length;
+        const dinasLuar = recs.filter((a) => a.status === 'DINAS_LUAR').length;
+        const izin = recs.filter((a) => a.status === 'IZIN').length;
+        const sakit = recs.filter((a) => a.status === 'SAKIT').length;
+        const alpa = recs.filter((a) => a.status === 'ALPA').length;
+        const total = recs.length || 1;
+        const pct = Math.round(((hadir + terlambat + dinasLuar) / total) * 100);
+        return {
+          teacher: t,
+          hadir,
+          terlambat,
+          dinasLuar,
+          izin,
+          sakit,
+          alpa,
+          total: recs.length,
+          pct,
+        };
+      });
+  }, [teachers, teacherAttendance, teacherCategoryFilter, filterStudentQuery]);
 
   const studentRecapRows = useMemo(() => {
     const q = filterStudentQuery.toLowerCase().trim();
@@ -904,44 +1071,121 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Mode Switcher: Rekap Siswa vs Rekap Guru & Mapel */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+        <div className="flex items-center gap-1.5 p-1 bg-[#F5F8FF] border border-slate-200 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setReportTarget('SISWA')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+              reportTarget === 'SISWA'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users className="w-4 h-4 text-[#D4AF37]" />
+            <span>Rekap Absensi Siswa ({classes.length} Rombel)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setReportTarget('GURU')}
+            className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+              reportTarget === 'GURU'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4 text-[#D4AF37]" />
+            <span>Rekap Absensi Guru Kelas, Guru Mapel &amp; Staf</span>
+          </button>
+        </div>
+
+        <span className="text-xs text-slate-500 px-2">
+          Ekspor laporan resmi dalam format <strong>Excel (.xlsx)</strong> dan{' '}
+          <strong>PDF Resmi Kepala Sekolah</strong>
+        </span>
+      </div>
+
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 no-print">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            Laporan & Rekapitulasi Kehadiran Siswa
+            {reportTarget === 'SISWA'
+              ? 'Laporan & Rekapitulasi Kehadiran Siswa (Per Rombel)'
+              : 'Laporan & Rekapitulasi Kehadiran Guru Kelas, Guru Mapel & Staf'}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Rekap harian, mingguan, bulanan, tahunan, per siswa, dan per kelas dilengkapi ekspor
-            Excel, PDF resmi, dan Cetak
+            {reportTarget === 'SISWA'
+              ? 'Rekap harian, mingguan, bulanan, tahunan, per siswa, dan per rombel dilengkapi ekspor Excel, PDF resmi, dan Cetak'
+              : 'Rekap kehadiran guru wali rombel (1A–6B), guru mata pelajaran (PAI, PJOK, B. Inggris, Mulok, Seni), serta staf sekolah'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => exportAttendanceToExcel(filteredRecords, `Rekap_${reportTab}`)}
-            className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1.5 cursor-pointer"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>Export Excel</span>
-          </button>
+          {reportTarget === 'SISWA' ? (
+            <>
+              <button
+                onClick={() => exportAttendanceToExcel(filteredRecords, `Rekap_Siswa_${reportTab}`)}
+                className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Export Excel Siswa</span>
+              </button>
 
-          <button
-            onClick={() =>
-              exportAttendanceToPdf(
-                filteredRecords,
-                `LAPORAN REKAPITULASI ABSENSI (${reportTab})`,
-                `Periode: ${filterDate} | Kelas: ${
-                  filterClassId === 'ALL'
-                    ? 'Semua Kelas'
-                    : classes.find((c) => c.id === filterClassId)?.name || 'Semua'
-                }`,
-                settings
-              )
-            }
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
-          >
-            <FileText className="w-4 h-4 text-[#D4AF37]" />
-            <span>Export PDF Resmi</span>
-          </button>
+              <button
+                onClick={() =>
+                  exportAttendanceToPdf(
+                    filteredRecords,
+                    `LAPORAN REKAPITULASI ABSENSI SISWA (${reportTab})`,
+                    `Periode: ${filterDate} | Rombel: ${
+                      filterClassId === 'ALL'
+                        ? 'Semua Rombel'
+                        : classes.find((c) => c.id === filterClassId)?.name || 'Semua'
+                    }`,
+                    settings
+                  )
+                }
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-4 h-4 text-[#D4AF37]" />
+                <span>Export PDF Siswa</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() =>
+                  exportTeacherAttendanceToExcel({
+                    records: filteredTeacherRecords,
+                    unrecordedTeachers: [],
+                    startDate: filterDate,
+                    endDate: filterDate,
+                    exportedBy: `${userProfile.name} (${userProfile.role})`,
+                    settings,
+                  })
+                }
+                className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Export Excel Guru</span>
+              </button>
+
+              <button
+                onClick={() =>
+                  exportTeacherAttendanceToPdf(
+                    filteredTeacherRecords,
+                    [],
+                    `LAPORAN REKAPITULASI KEHADIRAN GURU & STAF (${reportTab})`,
+                    `Periode: ${filterDate} | Kategori: ${teacherCategoryFilter}`,
+                    settings
+                  )
+                }
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-4 h-4 text-[#D4AF37]" />
+                <span>Export PDF Guru</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={() => window.print()}
@@ -962,8 +1206,13 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               { id: 'MINGGUAN', label: 'Rekap Mingguan' },
               { id: 'BULANAN', label: 'Rekap Bulanan' },
               { id: 'TAHUNAN', label: 'Rekap Tahunan' },
-              { id: 'PER_SISWA', label: 'Rekap Per Siswa' },
-              { id: 'PER_KELAS', label: 'Rekap Per Kelas' },
+              {
+                id: 'PER_SISWA',
+                label: reportTarget === 'SISWA' ? 'Rekap Per Siswa' : 'Rekap Per Guru / Mapel',
+              },
+              ...(reportTarget === 'SISWA'
+                ? ([{ id: 'PER_KELAS', label: 'Rekap Per Rombel' }] as const)
+                : []),
             ] as const
           ).map((t) => (
             <button
@@ -1009,18 +1258,35 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             />
           )}
 
-          <select
-            value={filterClassId}
-            onChange={(e) => setFilterClassId(e.target.value)}
-            className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg"
-          >
-            <option value="ALL">Semua Kelas</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          {reportTarget === 'SISWA' ? (
+            <select
+              value={filterClassId}
+              onChange={(e) => setFilterClassId(e.target.value)}
+              className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg"
+            >
+              <option value="ALL">Semua Rombel (1A – 6B)</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={teacherCategoryFilter}
+              onChange={(e) =>
+                setTeacherCategoryFilter(
+                  e.target.value as 'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
+                )
+              }
+              className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg"
+            >
+              <option value="ALL">Semua Guru &amp; Staf</option>
+              <option value="WALI_KELAS">Guru Kelas (Wali Rombel)</option>
+              <option value="GURU_MAPEL">Guru Mata Pelajaran (Mapel)</option>
+              <option value="STAF">Staf / Tata Usaha</option>
+            </select>
+          )}
 
           <select
             value={filterStatus}
@@ -1030,6 +1296,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <option value="ALL">Semua Status Kehadiran</option>
             <option value="HADIR">HADIR</option>
             <option value="TERLAMBAT">TERLAMBAT</option>
+            {reportTarget === 'GURU' && <option value="DINAS_LUAR">DINAS LUAR</option>}
             <option value="IZIN">IZIN</option>
             <option value="SAKIT">SAKIT</option>
             <option value="ALPA">ALPA</option>
@@ -1039,22 +1306,124 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             type="text"
             value={filterStudentQuery}
             onChange={(e) => setFilterStudentQuery(e.target.value)}
-            placeholder="Filter nama siswa atau NIS..."
+            placeholder={
+              reportTarget === 'SISWA'
+                ? 'Filter nama siswa atau NIS...'
+                : 'Filter nama guru, NIP, atau mapel...'
+            }
             className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg lg:col-span-2"
           />
         </div>
       </div>
 
-      {/* Table Content Based on Active Tab */}
+      {/* Table Content Based on Active Target & Tab */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {reportTab === 'PER_SISWA' ? (
+        {reportTarget === 'GURU' ? (
+          reportTab === 'PER_SISWA' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-[#F5F8FF] font-semibold text-slate-600">
+                    <th className="py-3 px-4">NIP</th>
+                    <th className="py-3 px-4">Nama Guru / Staf</th>
+                    <th className="py-3 px-4">Rombel / Mata Pelajaran</th>
+                    <th className="py-3 px-4 text-right">Hadir</th>
+                    <th className="py-3 px-4 text-right">Terlambat</th>
+                    <th className="py-3 px-4 text-right">Dinas Luar</th>
+                    <th className="py-3 px-4 text-right">Izin/Sakit</th>
+                    <th className="py-3 px-4 text-right">Alpa</th>
+                    <th className="py-3 px-4 text-right">% Kehadiran</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {teacherRecapRows.map((row) => (
+                    <tr key={row.teacher.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-mono tabular-nums">{row.teacher.nip}</td>
+                      <td className="py-3 px-4 font-semibold text-slate-900">
+                        {row.teacher.fullName}
+                      </td>
+                      <td className="py-3 px-4 text-[#0A3D91] font-medium">
+                        {row.teacher.className}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 font-semibold">
+                        {row.hadir}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-amber-700">
+                        {row.terlambat}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-[#0A3D91] font-semibold">
+                        {row.dinasLuar}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-sky-700">
+                        {row.izin + row.sakit}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums text-rose-700">
+                        {row.alpa}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-[#0A3D91]">
+                        {row.pct}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-[#F5F8FF] font-semibold text-slate-600">
+                    <th className="py-3 px-4">Tanggal</th>
+                    <th className="py-3 px-4">NIP</th>
+                    <th className="py-3 px-4">Nama Guru / Staf</th>
+                    <th className="py-3 px-4">Rombel / Mata Pelajaran</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Jam Masuk</th>
+                    <th className="py-3 px-4">Jam Pulang</th>
+                    <th className="py-3 px-4">Keterangan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredTeacherRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-500">
+                        Tidak ada data laporan absensi guru untuk filter yang dipilih.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTeacherRecords.map((rec) => (
+                      <tr key={rec.id} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-mono tabular-nums">{rec.date}</td>
+                        <td className="py-3 px-4 font-mono tabular-nums">{rec.nip}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">
+                          {rec.teacherName}
+                        </td>
+                        <td className="py-3 px-4 text-slate-700">{rec.className}</td>
+                        <td className="py-3 px-4 font-bold text-[#0A3D91]">
+                          {rec.status.replace('_', ' ')}
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums">
+                          {rec.checkInTime || '-'}
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums">
+                          {rec.checkOutTime || '-'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">{rec.notes || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : reportTab === 'PER_SISWA' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-[#F5F8FF] font-semibold text-slate-600">
                   <th className="py-3 px-4">NIS</th>
                   <th className="py-3 px-4">Nama Siswa</th>
-                  <th className="py-3 px-4">Kelas</th>
+                  <th className="py-3 px-4">Rombel</th>
                   <th className="py-3 px-4 text-right">Hadir</th>
                   <th className="py-3 px-4 text-right">Terlambat</th>
                   <th className="py-3 px-4 text-right">Izin</th>
@@ -1099,7 +1468,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-[#F5F8FF] font-semibold text-slate-600">
-                  <th className="py-3 px-4">Kelas</th>
+                  <th className="py-3 px-4">Rombel</th>
                   <th className="py-3 px-4">Wali Kelas</th>
                   <th className="py-3 px-4 text-right">Jumlah Siswa</th>
                   <th className="py-3 px-4 text-right">Hadir</th>
@@ -1149,7 +1518,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   <th className="py-3 px-4">Tanggal</th>
                   <th className="py-3 px-4">NIS</th>
                   <th className="py-3 px-4">Nama Siswa</th>
-                  <th className="py-3 px-4">Kelas</th>
+                  <th className="py-3 px-4">Rombel</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Jam Masuk</th>
                   <th className="py-3 px-4">Jam Pulang</th>
@@ -1189,3 +1558,4 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     </div>
   );
 };
+

@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Search,
   CreditCard,
+  Users,
+  GraduationCap,
 } from 'lucide-react';
 import {
   AttendanceSettings,
@@ -16,19 +18,25 @@ import {
   QrToken,
   SchoolClass,
   Student,
+  Teacher,
   UserProfile,
 } from '../types';
 import {
   downloadBulkQrZip,
   downloadSingleQrPng,
+  downloadTeacherQrPng,
   generateQrDataUrl,
 } from '../utils/exportUtils';
+import { getTeacherQrCodeId, getTeacherQrToken } from '../firebase';
+import { isSubjectTeacher } from './TeachersClassesView';
 
 interface QrGeneratorViewProps {
   userProfile: UserProfile;
   students: Student[];
+  teachers: Teacher[];
   classes: SchoolClass[];
   qrTokens: QrToken[];
+  schoolName?: string;
   onRegenerateStudentQr: (student: Student, reason: string) => Promise<void>;
   onBulkRegenerateQr: (targetStudents: Student[], scopeLabel: string) => Promise<void>;
   onNavigate: (page: PageId) => void;
@@ -37,8 +45,10 @@ interface QrGeneratorViewProps {
 export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
   userProfile,
   students,
+  teachers,
   classes,
   qrTokens,
+  schoolName = 'SDN ASEMROWO II/63 SURABAYA',
   onRegenerateStudentQr,
   onBulkRegenerateQr,
   onNavigate,
@@ -46,9 +56,12 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
   const canManageQr =
     userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH';
 
+  const [targetMode, setTargetMode] = useState<'SISWA' | 'GURU'>('SISWA');
   const [classFilter, setClassFilter] = useState<string>('ALL');
+  const [teacherRoleFilter, setTeacherRoleFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
+  const [teacherQrMap, setTeacherQrMap] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
   const [regenTarget, setRegenTarget] = useState<Student | null>(null);
@@ -68,11 +81,31 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
     });
   }, [students, classFilter, searchQuery]);
 
+  const filteredTeachers = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return teachers.filter((t) => {
+      if (t.status !== 'AKTIF') return false;
+      if (teacherRoleFilter === 'WALI_KELAS') {
+        if (t.role !== 'GURU' || isSubjectTeacher(t)) return false;
+      } else if (teacherRoleFilter === 'GURU_MAPEL') {
+        if (!isSubjectTeacher(t)) return false;
+      } else if (teacherRoleFilter === 'STAF') {
+        if (t.role === 'GURU') return false;
+      }
+      if (!q) return true;
+      return (
+        t.fullName.toLowerCase().includes(q) ||
+        t.nip.toLowerCase().includes(q) ||
+        t.className.toLowerCase().includes(q)
+      );
+    });
+  }, [teachers, teacherRoleFilter, searchQuery]);
+
   useEffect(() => {
     let cancelled = false;
     async function renderVisibleQrs() {
       const nextMap: Record<string, string> = {};
-      for (const s of filteredStudents.slice(0, 36)) {
+      for (const s of filteredStudents.slice(0, 40)) {
         try {
           nextMap[s.id] = await generateQrDataUrl(s.qrToken, 220);
         } catch {
@@ -81,11 +114,34 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
       }
       if (!cancelled) setQrMap(nextMap);
     }
-    renderVisibleQrs();
+    if (targetMode === 'SISWA') {
+      renderVisibleQrs();
+    }
     return () => {
       cancelled = true;
     };
-  }, [filteredStudents]);
+  }, [filteredStudents, targetMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function renderTeacherQrs() {
+      const nextMap: Record<string, string> = {};
+      for (const t of filteredTeachers) {
+        try {
+          nextMap[t.id] = await generateQrDataUrl(getTeacherQrToken(t.id, t.nip), 220);
+        } catch {
+          // ignore
+        }
+      }
+      if (!cancelled) setTeacherQrMap(nextMap);
+    }
+    if (targetMode === 'GURU') {
+      renderTeacherQrs();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredTeachers, targetMode]);
 
   const revokedCount = useMemo(
     () => qrTokens.filter((t) => t.status === 'REVOKED').length,
@@ -134,21 +190,61 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Top Mode Switcher: Siswa vs Guru Kelas, Mapel & Staf */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold text-[#0A3D91] uppercase tracking-wider">
+            Pilih Kategori Token QR Code Absensi
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Kelola dan unduh QR Code resmi untuk Siswa (Per Rombel 1A–6B) maupun Guru Kelas, Guru Mata Pelajaran &amp; Staf
+          </p>
+        </div>
+        <div className="inline-flex rounded-xl bg-[#F5F8FF] p-1 border border-blue-200 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setTargetMode('SISWA')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+              targetMode === 'SISWA'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-700 hover:text-[#0A3D91]'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>QR Siswa ({students.filter((s) => s.status === 'AKTIF').length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetMode('GURU')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+              targetMode === 'GURU'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-700 hover:text-[#0A3D91]'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>QR Guru Kelas, Mapel &amp; Staf ({teachers.filter((t) => t.status === 'AKTIF').length})</span>
+          </button>
+        </div>
+      </div>
+
       {/* Top Action Header */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            QR Code Generator & Manajemen Token Siswa
+            {targetMode === 'SISWA'
+              ? 'QR Code Generator & Manajemen Token Siswa'
+              : 'QR Code Generator Guru Wali Kelas, Guru Mapel & Staf'}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Setiap siswa memiliki 1 QR Code kriptografis permanen tanpa menyimpan data pribadi di
-            dalam payload QR ({filteredStudents.length} token aktif · {revokedCount} token lama
-            dinonaktifkan)
+            {targetMode === 'SISWA'
+              ? `Setiap siswa memiliki 1 QR Code kriptografis permanen tanpa menyimpan data pribadi di dalam payload QR (${filteredStudents.length} token aktif · ${revokedCount} token lama dinonaktifkan)`
+              : `Setiap Guru Wali Rombel, Guru Mata Pelajaran, dan Staf memiliki QR Code permanen terintegrasi ke Scanner Absensi (${filteredTeachers.length} pendidik & staf aktif)`}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {canManageQr && (
+          {targetMode === 'SISWA' && canManageQr && (
             <>
               {classFilter !== 'ALL' && (
                 <button
@@ -157,7 +253,7 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
                   className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] border border-blue-200 hover:bg-blue-50 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Generate QR Satu Kelas</span>
+                  <span>Generate QR Satu Rombel</span>
                 </button>
               )}
 
@@ -172,21 +268,23 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
             </>
           )}
 
-          <button
-            onClick={handleBulkZipDownload}
-            disabled={isProcessing || filteredStudents.length === 0}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-800 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
-          >
-            <FolderArchive className="w-4 h-4 text-amber-700" />
-            <span>{isProcessing ? 'Memproses ZIP...' : 'Download QR dalam ZIP'}</span>
-          </button>
+          {targetMode === 'SISWA' && (
+            <button
+              onClick={handleBulkZipDownload}
+              disabled={isProcessing || filteredStudents.length === 0}
+              className="px-3.5 py-2 text-xs font-semibold text-slate-800 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+            >
+              <FolderArchive className="w-4 h-4 text-amber-700" />
+              <span>{isProcessing ? 'Memproses ZIP...' : 'Download QR dalam ZIP'}</span>
+            </button>
+          )}
 
           <button
             onClick={() => onNavigate('id-cards')}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <CreditCard className="w-4 h-4 text-[#D4AF37]" />
-            <span>Cetak Kartu Pelajar</span>
+            <span>Cetak Kartu ID (Siswa &amp; Guru)</span>
           </button>
         </div>
       </div>
@@ -206,90 +304,181 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama siswa, NIS, atau Token ID..."
+            placeholder={
+              targetMode === 'SISWA'
+                ? 'Cari nama siswa, NIS, atau Token ID...'
+                : 'Cari nama guru, NIP, rombel, atau mata pelajaran...'
+            }
             className="w-full pl-10 pr-4 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:border-[#0A3D91]"
           />
         </div>
 
-        <select
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-          className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg text-slate-800"
-        >
-          <option value="ALL">Semua Kelas (1A – 6A)</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        {targetMode === 'SISWA' ? (
+          <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Rombel (Kelas 1A – 6B)</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <select
+            value={teacherRoleFilter}
+            onChange={(e) => setTeacherRoleFilter(e.target.value)}
+            className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Guru &amp; Staf</option>
+            <option value="WALI_KELAS">Guru Kelas (Wali Rombel 1A–6B)</option>
+            <option value="GURU_MAPEL">Guru Mata Pelajaran (Mapel)</option>
+            <option value="STAF">Staf Tata Usaha &amp; Pimpinan</option>
+          </select>
+        )}
       </div>
 
       {/* QR Code Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {filteredStudents.map((std) => (
-          <div
-            key={std.id}
-            className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div>
-                  <p className="text-xs font-semibold text-[#0A3D91]">{std.className}</p>
-                  <h3 className="text-sm font-bold font-display text-slate-900 line-clamp-1">
-                    {std.fullName}
-                  </h3>
-                  <p className="text-xs font-mono tabular-nums text-slate-500">
-                    NIS: {std.nis} · NISN: {std.nisn}
+      {targetMode === 'SISWA' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {filteredStudents.map((std) => (
+            <div
+              key={std.id}
+              className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div>
+                    <p className="text-xs font-semibold text-[#0A3D91]">{std.className}</p>
+                    <h3 className="text-sm font-bold font-display text-slate-900 line-clamp-1">
+                      {std.fullName}
+                    </h3>
+                    <p className="text-xs font-mono tabular-nums text-slate-500">
+                      NIS: {std.nis} · NISN: {std.nisn}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-[#F5F8FF] border border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center my-2">
+                  {qrMap[std.id] ? (
+                    <img
+                      src={qrMap[std.id]}
+                      alt={`QR ${std.fullName}`}
+                      referrerPolicy="no-referrer"
+                      className="w-40 h-40 object-contain"
+                    />
+                  ) : (
+                    <div className="w-40 h-40 flex items-center justify-center text-xs text-slate-400">
+                      Memuat QR...
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11px] font-mono tabular-nums text-slate-500 truncate max-w-full">
+                    ID: {std.qrCodeId}
                   </p>
                 </div>
               </div>
 
-              <div className="bg-[#F5F8FF] border border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center my-2">
-                {qrMap[std.id] ? (
-                  <img
-                    src={qrMap[std.id]}
-                    alt={`QR ${std.fullName}`}
-                    referrerPolicy="no-referrer"
-                    className="w-40 h-40 object-contain"
-                  />
-                ) : (
-                  <div className="w-40 h-40 flex items-center justify-center text-xs text-slate-400">
-                    Memuat QR...
-                  </div>
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
+                <button
+                  onClick={() => downloadSingleQrPng(std)}
+                  className="flex-1 py-1.5 px-2.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh PNG</span>
+                </button>
+
+                {canManageQr && (
+                  <button
+                    onClick={() => {
+                      setRegenTarget(std);
+                      setRegenReason('Kartu pelajar hilang / rusak');
+                    }}
+                    title="Regenerasi Token QR (Nonaktifkan QR Lama)"
+                    className="py-1.5 px-2.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Regenerasi</span>
+                  </button>
                 )}
-                <p className="mt-2 text-[11px] font-mono tabular-nums text-slate-500 truncate max-w-full">
-                  ID: {std.qrCodeId}
-                </p>
               </div>
             </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
-              <button
-                onClick={() => downloadSingleQrPng(std)}
-                className="flex-1 py-1.5 px-2.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {filteredTeachers.map((tch) => {
+            const isMapel = isSubjectTeacher(tch);
+            const qrCodeId = getTeacherQrCodeId(tch.id, tch.nip);
+            return (
+              <div
+                key={tch.id}
+                className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col justify-between"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Unduh PNG</span>
-              </button>
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div>
+                      <span
+                        className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded mb-1 ${
+                          isMapel
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : tch.role === 'GURU'
+                            ? 'bg-blue-50 text-[#0A3D91] border border-blue-200'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {isMapel
+                          ? 'GURU MATA PELAJARAN'
+                          : tch.role === 'GURU'
+                          ? 'WALI KELAS / ROMBEL'
+                          : 'STAF / TATA USAHA'}
+                      </span>
+                      <h3 className="text-sm font-bold font-display text-slate-900 line-clamp-1">
+                        {tch.fullName}
+                      </h3>
+                      <p className="text-xs font-semibold text-[#0A3D91] line-clamp-1">
+                        {tch.className}
+                      </p>
+                      <p className="text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
+                        NIP: {tch.nip}
+                      </p>
+                    </div>
+                  </div>
 
-              {canManageQr && (
-                <button
-                  onClick={() => {
-                    setRegenTarget(std);
-                    setRegenReason('Kartu pelajar hilang / rusak');
-                  }}
-                  title="Regenerasi Token QR (Nonaktifkan QR Lama)"
-                  className="py-1.5 px-2.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Regenerasi</span>
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+                  <div className="bg-[#F5F8FF] border border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center my-2">
+                    {teacherQrMap[tch.id] ? (
+                      <img
+                        src={teacherQrMap[tch.id]}
+                        alt={`QR ${tch.fullName}`}
+                        referrerPolicy="no-referrer"
+                        className="w-40 h-40 object-contain"
+                      />
+                    ) : (
+                      <div className="w-40 h-40 flex items-center justify-center text-xs text-slate-400">
+                        Memuat QR...
+                      </div>
+                    )}
+                    <p className="mt-2 text-[11px] font-mono tabular-nums text-slate-500 truncate max-w-full">
+                      ID: {qrCodeId}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
+                  <button
+                    onClick={() => downloadTeacherQrPng(tch, schoolName)}
+                    className="w-full py-1.5 px-2.5 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh Poster QR Guru (PNG)</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Regenerate QR Modal (Revokes old QR Token) */}
       {regenTarget && (
@@ -357,6 +546,7 @@ export const QrGeneratorView: React.FC<QrGeneratorViewProps> = ({
 
 interface StudentIdCardsViewProps {
   students: Student[];
+  teachers: Teacher[];
   classes: SchoolClass[];
   settings: AttendanceSettings;
   tagline?: string;
@@ -364,13 +554,17 @@ interface StudentIdCardsViewProps {
 
 export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
   students,
+  teachers,
   classes,
   settings,
   tagline = 'Scan, Verify, Attend!',
 }) => {
+  const [cardMode, setCardMode] = useState<'SISWA' | 'GURU'>('SISWA');
   const [classFilter, setClassFilter] = useState<string>('ALL');
+  const [teacherRoleFilter, setTeacherRoleFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
+  const [teacherQrMap, setTeacherQrMap] = useState<Record<string, string>>({});
 
   const activeStudents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -381,6 +575,26 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
       return s.fullName.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q);
     });
   }, [students, classFilter, searchQuery]);
+
+  const activeTeachers = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return teachers.filter((t) => {
+      if (t.status !== 'AKTIF') return false;
+      if (teacherRoleFilter === 'WALI_KELAS') {
+        if (t.role !== 'GURU' || isSubjectTeacher(t)) return false;
+      } else if (teacherRoleFilter === 'GURU_MAPEL') {
+        if (!isSubjectTeacher(t)) return false;
+      } else if (teacherRoleFilter === 'STAF') {
+        if (t.role === 'GURU') return false;
+      }
+      if (!q) return true;
+      return (
+        t.fullName.toLowerCase().includes(q) ||
+        t.nip.toLowerCase().includes(q) ||
+        t.className.toLowerCase().includes(q)
+      );
+    });
+  }, [teachers, teacherRoleFilter, searchQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -395,23 +609,89 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
       }
       if (!cancelled) setQrMap(map);
     }
-    loadQrs();
+    if (cardMode === 'SISWA') {
+      loadQrs();
+    }
     return () => {
       cancelled = true;
     };
-  }, [activeStudents]);
+  }, [activeStudents, cardMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTeacherQrs() {
+      const map: Record<string, string> = {};
+      for (const t of activeTeachers) {
+        try {
+          map[t.id] = await generateQrDataUrl(getTeacherQrToken(t.id, t.nip), 200);
+        } catch {
+          // ignore
+        }
+      }
+      if (!cancelled) setTeacherQrMap(map);
+    }
+    if (cardMode === 'GURU') {
+      loadTeacherQrs();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTeachers, cardMode]);
+
+  const activeCount = cardMode === 'SISWA' ? activeStudents.length : activeTeachers.length;
 
   return (
     <div className="space-y-6">
+      {/* Mode Switcher (Hidden during print) */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print">
+        <div>
+          <p className="text-xs font-bold text-[#0A3D91] uppercase tracking-wider">
+            Pilih Jenis Kartu ID (Standar CR-80)
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Cetak kartu ber-QR Code untuk Siswa maupun Guru Kelas, Guru Mata Pelajaran &amp; Staf
+          </p>
+        </div>
+        <div className="inline-flex rounded-xl bg-[#F5F8FF] p-1 border border-blue-200 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setCardMode('SISWA')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+              cardMode === 'SISWA'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-700 hover:text-[#0A3D91]'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Kartu Pelajar Siswa ({students.filter((s) => s.status === 'AKTIF').length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCardMode('GURU')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+              cardMode === 'GURU'
+                ? 'bg-[#0A3D91] text-white shadow-xs'
+                : 'text-slate-700 hover:text-[#0A3D91]'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>Kartu ID Guru &amp; Mapel ({teachers.filter((t) => t.status === 'AKTIF').length})</span>
+          </button>
+        </div>
+      </div>
+
       {/* Control Header (Hidden during print) */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 no-print">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            Cetak Kartu Pelajar QR Code (Ukuran Standar ID Card CR-80)
+            {cardMode === 'SISWA'
+              ? 'Cetak Kartu Pelajar QR Code (Ukuran Standar ID Card CR-80)'
+              : 'Cetak Kartu ID Guru Kelas, Guru Mapel & Staf (Standar CR-80)'}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Template kartu pelajar resmi dilengkapi Logo Sekolah, Identitas Siswa, dan QR Code
-            permanen ({activeStudents.length} kartu siap cetak)
+            Template kartu resmi dilengkapi Logo Sekolah, Identitas{' '}
+            {cardMode === 'SISWA' ? 'Siswa' : 'Pendidik / Tenaga Kependidikan'}, dan QR Code
+            permanen ({activeCount} kartu siap cetak)
           </p>
         </div>
 
@@ -422,137 +702,252 @@ export const StudentIdCardsView: React.FC<StudentIdCardsViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama / NIS..."
+              placeholder={cardMode === 'SISWA' ? 'Cari nama / NIS...' : 'Cari nama / NIP / Mapel...'}
               className="pl-9 pr-3 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg"
             />
           </div>
 
-          <select
-            value={classFilter}
-            onChange={(e) => setClassFilter(e.target.value)}
-            className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg"
-          >
-            <option value="ALL">Semua Kelas ({students.length} Siswa)</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          {cardMode === 'SISWA' ? (
+            <select
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg"
+            >
+              <option value="ALL">Semua Rombel ({students.length} Siswa)</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={teacherRoleFilter}
+              onChange={(e) => setTeacherRoleFilter(e.target.value)}
+              className="px-3 py-2 text-xs font-medium bg-[#F5F8FF] border border-slate-200 rounded-lg"
+            >
+              <option value="ALL">Semua Guru &amp; Staf ({teachers.length})</option>
+              <option value="WALI_KELAS">Guru Kelas (Wali Rombel)</option>
+              <option value="GURU_MAPEL">Guru Mata Pelajaran (Mapel)</option>
+              <option value="STAF">Staf Tata Usaha</option>
+            </select>
+          )}
 
           <button
             onClick={() => window.print()}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Printer className="w-4 h-4 text-[#D4AF37]" />
-            <span>Cetak Massal Kartu ({activeStudents.length})</span>
+            <span>Cetak Massal Kartu ({activeCount})</span>
           </button>
         </div>
       </div>
 
       {/* Printable ID Cards Grid (CR-80 Standard Proportions) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
-        {activeStudents.map((std) => (
-          <div
-            key={std.id}
-            className="bg-white rounded-2xl border border-slate-300 overflow-hidden shadow-xs break-inside-avoid"
-          >
-            {/* Card Header Banner */}
-            <div className="bg-[#0A3D91] text-white px-4 py-3 flex items-center gap-3 border-b-4 border-[#D4AF37]">
-              <div className="w-10 h-10 rounded-lg bg-white p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
-                <img
-                  src="/assets/aistudio/EB607786-7417-4AF8-93A0-7453467400F4_9963c46a.png"
-                  alt={`Logo ${settings.schoolName}`}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-contain"
-                />
+      {cardMode === 'SISWA' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
+          {activeStudents.map((std) => (
+            <div
+              key={std.id}
+              className="bg-white rounded-2xl border border-slate-300 overflow-hidden shadow-xs break-inside-avoid"
+            >
+              {/* Card Header Banner */}
+              <div className="bg-[#0A3D91] text-white px-4 py-3 flex items-center gap-3 border-b-4 border-[#D4AF37]">
+                <div className="w-10 h-10 rounded-lg bg-white p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
+                  <img
+                    src="/assets/aistudio/EB607786-7417-4AF8-93A0-7453467400F4_9963c46a.png"
+                    alt={`Logo ${settings.schoolName}`}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold text-[#D4AF37] tracking-wider">
+                    KARTU PELAJAR SMART ATTENDANCE
+                  </p>
+                  <h3 className="text-xs font-bold font-display text-white truncate">
+                    {settings.schoolName}
+                  </h3>
+                  <p className="text-[10px] text-blue-100 truncate">
+                    Dinas Pendidikan Kota Surabaya · NPSN {settings.npsn}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold text-[#D4AF37] tracking-wider">
-                  KARTU PELAJAR SMART ATTENDANCE
-                </p>
-                <h3 className="text-xs font-bold font-display text-white truncate">
-                  {settings.schoolName}
-                </h3>
-                <p className="text-[10px] text-blue-100 truncate">
-                  Dinas Pendidikan Kota Surabaya · NPSN {settings.npsn}
-                </p>
+
+              {/* Card Body: Student Photo & Identity + QR Code */}
+              <div className="p-4 flex items-center justify-between gap-3 bg-white">
+                <div className="flex items-start gap-3 min-w-0 flex-1">
+                  {/* Student Photo */}
+                  <div className="w-16 h-20 rounded-lg bg-[#F5F8FF] border border-slate-200 flex flex-col items-center justify-center shrink-0 overflow-hidden text-[#0A3D91]">
+                    {std.photoUrl ? (
+                      <img
+                        src={std.photoUrl}
+                        alt={std.fullName}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <>
+                        <span className="text-base font-bold font-display">
+                          {std.fullName
+                            .split(' ')
+                            .slice(0, 2)
+                            .map((n) => n[0])
+                            .join('')}
+                        </span>
+                        <span className="text-[9px] text-slate-400 mt-0.5">FOTO 3x4</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Student Identity */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-xs font-bold font-display text-slate-900 leading-snug line-clamp-2">
+                      {std.fullName}
+                    </p>
+                    <div className="text-[11px] text-slate-600 space-y-0.5 font-mono tabular-nums">
+                      <p>
+                        <span className="text-slate-400">NIS:</span>{' '}
+                        <strong className="text-slate-800">{std.nis}</strong>
+                      </p>
+                      <p>
+                        <span className="text-slate-400">NISN:</span> {std.nisn}
+                      </p>
+                    </div>
+                    <p className="text-xs font-bold text-[#0A3D91] pt-0.5">{std.className}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{std.birthPlaceDate}</p>
+                  </div>
+                </div>
+
+                {/* Permanent Student QR Code */}
+                <div className="shrink-0 flex flex-col items-center">
+                  <div className="p-1.5 bg-white border border-slate-200 rounded-lg">
+                    {qrMap[std.id] ? (
+                      <img
+                        src={qrMap[std.id]}
+                        alt={`QR ${std.nis}`}
+                        referrerPolicy="no-referrer"
+                        className="w-20 h-20 object-contain"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 bg-slate-100" />
+                    )}
+                  </div>
+                  <span className="text-[9px] font-mono tabular-nums text-slate-400 mt-1">
+                    {std.nis} · {std.gender}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card Footer */}
+              <div className="px-4 py-2 bg-[#F5F8FF] border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
+                <span>{tagline}</span>
+                <span className="font-mono tabular-nums">TP {settings.activeAcademicYear}</span>
               </div>
             </div>
-
-            {/* Card Body: Student Photo & Identity + QR Code */}
-            <div className="p-4 flex items-center justify-between gap-3 bg-white">
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                {/* Student Photo */}
-                <div className="w-16 h-20 rounded-lg bg-[#F5F8FF] border border-slate-200 flex flex-col items-center justify-center shrink-0 overflow-hidden text-[#0A3D91]">
-                  {std.photoUrl ? (
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
+          {activeTeachers.map((tch) => {
+            const isMapel = isSubjectTeacher(tch);
+            const qrCodeId = getTeacherQrCodeId(tch.id, tch.nip);
+            return (
+              <div
+                key={tch.id}
+                className="bg-white rounded-2xl border border-slate-300 overflow-hidden shadow-xs break-inside-avoid"
+              >
+                {/* Card Header Banner */}
+                <div className="bg-[#0A3D91] text-white px-4 py-3 flex items-center gap-3 border-b-4 border-[#D4AF37]">
+                  <div className="w-10 h-10 rounded-lg bg-white p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
                     <img
-                      src={std.photoUrl}
-                      alt={std.fullName}
+                      src="/assets/aistudio/EB607786-7417-4AF8-93A0-7453467400F4_9963c46a.png"
+                      alt={`Logo ${settings.schoolName}`}
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
-                  ) : (
-                    <>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold text-[#D4AF37] tracking-wider">
+                      KARTU PRESENSI GURU &amp; TENAGA KEPENDIDIKAN
+                    </p>
+                    <h3 className="text-xs font-bold font-display text-white truncate">
+                      {settings.schoolName}
+                    </h3>
+                    <p className="text-[10px] text-blue-100 truncate">
+                      Dinas Pendidikan Kota Surabaya · NPSN {settings.npsn}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Card Body: Teacher Identity + QR Code */}
+                <div className="p-4 flex items-center justify-between gap-3 bg-white">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="w-16 h-20 rounded-lg bg-[#F5F8FF] border border-slate-200 flex flex-col items-center justify-center shrink-0 overflow-hidden text-[#0A3D91]">
                       <span className="text-base font-bold font-display">
-                        {std.fullName
+                        {tch.fullName
                           .split(' ')
                           .slice(0, 2)
                           .map((n) => n[0])
                           .join('')}
                       </span>
-                      <span className="text-[9px] text-slate-400 mt-0.5">FOTO 3x4</span>
-                    </>
-                  )}
-                </div>
+                      <span className="text-[9px] text-slate-400 mt-0.5">
+                        {isMapel ? 'MAPEL' : tch.role === 'GURU' ? 'ROMBEL' : 'STAF'}
+                      </span>
+                    </div>
 
-                {/* Student Identity */}
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-xs font-bold font-display text-slate-900 leading-snug line-clamp-2">
-                    {std.fullName}
-                  </p>
-                  <div className="text-[11px] text-slate-600 space-y-0.5 font-mono tabular-nums">
-                    <p>
-                      <span className="text-slate-400">NIS:</span>{' '}
-                      <strong className="text-slate-800">{std.nis}</strong>
-                    </p>
-                    <p>
-                      <span className="text-slate-400">NISN:</span> {std.nisn}
-                    </p>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="text-xs font-bold font-display text-slate-900 leading-snug line-clamp-2">
+                        {tch.fullName}
+                      </p>
+                      <p className="text-[11px] font-mono tabular-nums text-slate-600">
+                        <span className="text-slate-400">NIP:</span>{' '}
+                        <strong className="text-slate-800">{tch.nip}</strong>
+                      </p>
+                      <p className="text-xs font-bold text-[#0A3D91] pt-0.5 line-clamp-1">
+                        {tch.className}
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate">
+                        {isMapel
+                          ? 'Guru Mata Pelajaran (Kelas 1A–6B)'
+                          : tch.role === 'GURU'
+                          ? 'Wali Kelas Rombel'
+                          : 'Tenaga Kependidikan'}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs font-bold text-[#0A3D91] pt-0.5">{std.className}</p>
-                  <p className="text-[10px] text-slate-500 truncate">{std.birthPlaceDate}</p>
+
+                  {/* Permanent Teacher QR Code */}
+                  <div className="shrink-0 flex flex-col items-center">
+                    <div className="p-1.5 bg-white border border-slate-200 rounded-lg">
+                      {teacherQrMap[tch.id] ? (
+                        <img
+                          src={teacherQrMap[tch.id]}
+                          alt={`QR ${tch.fullName}`}
+                          referrerPolicy="no-referrer"
+                          className="w-20 h-20 object-contain"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 bg-slate-100" />
+                      )}
+                    </div>
+                    <span className="text-[9px] font-mono tabular-nums text-slate-400 mt-1">
+                      {qrCodeId}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Footer */}
+                <div className="px-4 py-2 bg-[#F5F8FF] border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
+                  <span>{tagline}</span>
+                  <span className="font-mono tabular-nums">TP {settings.activeAcademicYear}</span>
                 </div>
               </div>
-
-              {/* Permanent Student QR Code */}
-              <div className="shrink-0 flex flex-col items-center">
-                <div className="p-1.5 bg-white border border-slate-200 rounded-lg">
-                  {qrMap[std.id] ? (
-                    <img
-                      src={qrMap[std.id]}
-                      alt={`QR ${std.nis}`}
-                      referrerPolicy="no-referrer"
-                      className="w-20 h-20 object-contain"
-                    />
-                  ) : (
-                    <div className="w-20 h-20 bg-slate-100" />
-                  )}
-                </div>
-                <span className="text-[9px] font-mono tabular-nums text-slate-400 mt-1">
-                  {std.nis} · {std.gender}
-                </span>
-              </div>
-            </div>
-
-            {/* Card Footer */}
-            <div className="px-4 py-2 bg-[#F5F8FF] border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
-              <span>{tagline}</span>
-              <span className="font-mono tabular-nums">TP {settings.activeAcademicYear}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
+

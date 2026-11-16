@@ -197,7 +197,21 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
     const q = searchQuery.toLowerCase().trim();
     return activeTeachers
       .filter((t) => {
-        if (roleFilter !== 'ALL' && t.role !== roleFilter) return false;
+        const isMapel =
+          t.classId.startsWith('MAPEL_') || t.className.toLowerCase().includes('mapel');
+        const isWali = t.role === 'GURU' && !isMapel && t.classId !== 'ALL';
+        if (roleFilter === 'WALI_KELAS' && !isWali) return false;
+        if (roleFilter === 'GURU_MAPEL' && !isMapel) return false;
+        if (roleFilter === 'STAF' && (isWali || isMapel)) return false;
+        if (
+          roleFilter !== 'ALL' &&
+          roleFilter !== 'WALI_KELAS' &&
+          roleFilter !== 'GURU_MAPEL' &&
+          roleFilter !== 'STAF' &&
+          t.role !== roleFilter
+        ) {
+          return false;
+        }
         if (!q) return true;
         return (
           t.fullName.toLowerCase().includes(q) ||
@@ -277,7 +291,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
     exportTeacherAttendanceToPdf(
       dateRecords,
       unrecorded,
-      'Laporan Kehadiran Guru dan Tenaga Kependidikan',
+      'Laporan Kehadiran Guru Kelas (Rombel), Guru Mapel & Staf',
       `Tanggal: ${formatIndonesianDate(selectedDate)}  |  Batas Masuk Tepat Waktu: ${settings.checkInDeadline} WIB`,
       settings
     );
@@ -342,13 +356,14 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-[#0A3D91] mb-1">
             <UserCheck className="w-4 h-4 text-[#D4AF37]" />
-            <span>MODUL PRESENSI PENDIDIK & TENAGA KEPENDIDIKAN</span>
+            <span>MODUL PRESENSI WALI ROMBEL, GURU MATA PELAJARAN &amp; STAF</span>
           </div>
           <h1 className="text-xl lg:text-2xl font-bold font-display text-slate-900">
-            Absensi Guru & Staf Sekolah
+            Absensi Guru Kelas, Guru Mapel &amp; Staf Sekolah
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Pencatatan kehadiran masuk, pulang, dinas luar, dan izin guru {settings.schoolName}
+            Pencatatan kehadiran masuk, pulang, dinas luar, dan izin guru wali rombel, guru mata
+            pelajaran (PAI, PJOK, B. Inggris, Mulok, Seni), serta staf {settings.schoolName}
           </p>
         </div>
 
@@ -438,7 +453,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
               </div>
 
               <p className="text-xs text-blue-100 font-mono">
-                NIP: {selfTeacher.nip || '-'} · Jabatan: {selfTeacher.role.replace('_', ' ')} ({selfTeacher.className}) · Token QR: {getTeacherQrCodeId(selfTeacher.id, selfTeacher.nip)}
+                NIP: {selfTeacher.nip || '-'} · Penugasan: {selfTeacher.className} · Token QR: {getTeacherQrCodeId(selfTeacher.id, selfTeacher.nip)}
               </p>
 
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
@@ -514,7 +529,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-500">Total Guru & Staf Aktif</p>
+            <p className="text-xs font-medium text-slate-500">Total Guru &amp; Staf Aktif</p>
             <p className="text-2xl font-bold font-display text-slate-900 mt-1 font-mono tabular-nums">
               {stats.total}
             </p>
@@ -544,7 +559,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-500">Terlambat & Dinas Luar</p>
+            <p className="text-xs font-medium text-slate-500">Terlambat &amp; Dinas Luar</p>
             <p className="text-2xl font-bold font-display text-amber-700 mt-1 font-mono tabular-nums">
               {stats.terlambat} <span className="text-slate-300">/</span>{' '}
               <span className="text-[#0A3D91]">{stats.dinasLuar}</span>
@@ -560,7 +575,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-500">Izin/Sakit & Belum Absen</p>
+            <p className="text-xs font-medium text-slate-500">Izin/Sakit &amp; Belum Absen</p>
             <p className="text-2xl font-bold font-display text-rose-700 mt-1 font-mono tabular-nums">
               {stats.izinSakit + stats.alpa} <span className="text-slate-300">/</span>{' '}
               <span className="text-slate-600">{stats.belumAbsen}</span>
@@ -583,7 +598,7 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama guru, NIP, atau kelas ampuan..."
+            placeholder="Cari nama guru, NIP, mata pelajaran, atau rombel..."
             className="w-full pl-9 pr-4 py-2 text-xs bg-[#F5F8FF] border border-slate-200 rounded-lg focus:outline-none focus:border-[#0A3D91]"
           />
         </div>
@@ -612,11 +627,10 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
             onChange={(e) => setRoleFilter(e.target.value)}
             className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg font-medium text-slate-700"
           >
-            <option value="ALL">Semua Jabatan</option>
-            <option value="GURU">Guru Kelas</option>
-            <option value="KEPALA_SEKOLAH">Kepala Sekolah</option>
-            <option value="ADMIN_SEKOLAH">Admin / Tata Usaha</option>
-            <option value="SUPER_ADMIN">Super Admin</option>
+            <option value="ALL">Semua Kategori Guru &amp; Staf</option>
+            <option value="WALI_KELAS">Guru Kelas (Wali Rombel 1A–6B)</option>
+            <option value="GURU_MAPEL">Guru Mata Pelajaran (Mapel)</option>
+            <option value="STAF">Staf Tata Usaha &amp; Pimpinan</option>
           </select>
         </div>
       </div>
@@ -626,10 +640,10 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold font-display text-slate-900">
-              Daftar Kehadiran Guru & Staf — {formatIndonesianDate(selectedDate)}
+              Daftar Kehadiran Guru Kelas, Guru Mapel &amp; Staf — {formatIndonesianDate(selectedDate)}
             </h2>
             <p className="text-xs text-slate-500">
-              Menampilkan {combinedRows.length} dari {activeTeachers.length} pendidik & tenaga
+              Menampilkan {combinedRows.length} dari {activeTeachers.length} pendidik &amp; tenaga
               kependidikan aktif
             </p>
           </div>
@@ -641,12 +655,12 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
               <tr className="border-b border-slate-200 bg-[#F5F8FF] text-slate-600 font-semibold">
                 <th className="py-3 px-4">Nama Guru / Staf</th>
                 <th className="py-3 px-4">NIP</th>
-                <th className="py-3 px-4">Jabatan & Kelas Ampuan</th>
+                <th className="py-3 px-4">Kategori &amp; Penugasan</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Jam Masuk</th>
                 <th className="py-3 px-4">Jam Pulang</th>
                 <th className="py-3 px-4">Keterangan</th>
-                <th className="py-3 px-4 text-right">Aksi Presensi & QR</th>
+                <th className="py-3 px-4 text-right">Aksi Presensi &amp; QR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -660,6 +674,9 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
                 combinedRows.map(({ teacher, record }) => {
                   const isSelf = selfTeacher?.id === teacher.id;
                   const canActOnRow = canManageAll || isSelf || settings.allowTeacherManualEdit;
+                  const isMapel =
+                    teacher.classId.startsWith('MAPEL_') ||
+                    teacher.className.toLowerCase().includes('mapel');
                   return (
                     <tr key={teacher.id} className="hover:bg-slate-50/80">
                       <td className="py-3 px-4">
@@ -671,9 +688,13 @@ export const TeacherAttendanceView: React.FC<TeacherAttendanceViewProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <p className="font-semibold text-[#0A3D91]">
-                          {teacher.role.replace('_', ' ')}
+                          {isMapel
+                            ? 'Guru Mata Pelajaran'
+                            : teacher.role === 'GURU' && teacher.classId !== 'ALL'
+                            ? 'Wali Kelas (Rombel)'
+                            : teacher.role.replace('_', ' ')}
                         </p>
-                        <p className="text-slate-500">{teacher.className}</p>
+                        <p className="text-slate-600 font-medium">{teacher.className}</p>
                       </td>
                       <td className="py-3 px-4">{renderStatusBadge(record?.status)}</td>
                       <td className="py-3 px-4 font-mono tabular-nums font-semibold text-slate-800">

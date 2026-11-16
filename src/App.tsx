@@ -81,7 +81,9 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_SITE_CONTENT,
   INITIAL_ANNOUNCEMENTS,
+  INITIAL_CLASSES,
   INITIAL_TEACHERS,
+  SAMPLE_TEACHER_ATTENDANCE_BY_ID,
   seedSchoolDatabase,
 } from './seedData';
 import { LoginView } from './components/LoginView';
@@ -137,13 +139,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'attendance-data',
-    label: 'Data Absensi Siswa',
+    label: 'Data Absensi',
     icon: ClipboardCheck,
     allowedRoles: ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'],
   },
   {
     id: 'teacher-attendance',
-    label: 'Absensi Guru & Staf',
+    label: 'Absensi Guru & Mapel',
     icon: UserCheck,
     allowedRoles: ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'],
   },
@@ -161,13 +163,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'teachers',
-    label: 'Data Guru',
+    label: 'Data Guru & Mapel',
     icon: GraduationCap,
     allowedRoles: ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'],
   },
   {
     id: 'classes',
-    label: 'Data Kelas',
+    label: 'Data Kelas & Rombel',
     icon: BookOpen,
     allowedRoles: ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'],
   },
@@ -179,7 +181,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'id-cards',
-    label: 'Cetak Kartu Siswa',
+    label: 'Cetak Kartu ID',
     icon: CreditCard,
     allowedRoles: ['SUPER_ADMIN', 'ADMIN_SEKOLAH'],
   },
@@ -601,59 +603,72 @@ export default function App() {
           }
         }
 
-        // Ensure sample teacherAttendance exists for today on existing databases
+        // Auto-upgrade existing databases with parallel Rombel (1B–6B), Subject Teachers (Guru Mapel), and sample teacherAttendance
         const todayStr = getTodayDateString();
-        const firstTchAttSnap = await getDoc(
-          doc(db, 'teacherAttendance', `${todayStr}_tch_01`)
+        const rombelBSnap = await getDoc(doc(db, 'classes', 'cls_1b'));
+        const mapelSnap = await getDoc(doc(db, 'teachers', 'tch_mapel_pai'));
+        const mapelAttSnap = await getDoc(
+          doc(db, 'teacherAttendance', `${todayStr}_tch_mapel_pai`)
         );
-        if (!firstTchAttSnap.exists() && !cancelled) {
+
+        if ((!rombelBSnap.exists() || !mapelSnap.exists() || !mapelAttSnap.exists()) && !cancelled) {
           const nowIso = new Date().toISOString();
           const batch = writeBatch(db);
-          const samples: Array<{
-            status: TeacherAttendanceStatus;
-            checkInTime: string;
-            checkOutTime: string;
-            notes: string;
-          }> = [
-            { status: 'HADIR', checkInTime: '06:22:14', checkOutTime: '14:05:10', notes: 'Scan QR Guru Tepat Waktu' },
-            { status: 'HADIR', checkInTime: '06:28:40', checkOutTime: '14:02:18', notes: 'Scan QR Guru Tepat Waktu' },
-            { status: 'HADIR', checkInTime: '06:31:05', checkOutTime: '', notes: 'Scan QR Guru Tepat Waktu' },
-            { status: 'DINAS_LUAR', checkInTime: '06:40:00', checkOutTime: '', notes: 'Rapat Koordinasi KKG Dinas Pendidikan Kota Surabaya' },
-            { status: 'HADIR', checkInTime: '06:25:19', checkOutTime: '14:10:00', notes: 'Scan QR Guru Tepat Waktu' },
-            { status: 'TERLAMBAT', checkInTime: '07:06:30', checkOutTime: '', notes: 'Kendala lalu lintas Jl. Asemraya' },
-            { status: 'HADIR', checkInTime: '06:18:55', checkOutTime: '14:15:30', notes: 'Presensi Staf Tata Usaha Tepat Waktu' },
-          ];
-          INITIAL_TEACHERS.forEach((tch, idx) => {
-            const sp = samples[idx];
-            if (!sp) return;
-            const tAttId = `${todayStr}_${tch.id}`;
-            const rec: TeacherAttendanceRecord = {
-              id: tAttId,
-              teacherId: tch.id,
-              nip: tch.nip,
-              teacherName: tch.fullName,
-              role: tch.role,
-              classId: tch.classId,
-              className: tch.className,
-              date: todayStr,
-              academicYear: settings.activeAcademicYear || '2026/2027',
-              status: sp.status,
-              checkInTime: sp.checkInTime,
-              checkOutTime: sp.checkOutTime,
-              session: sp.checkOutTime
-                ? 'PULANG'
-                : sp.status === 'DINAS_LUAR'
-                ? 'MANUAL'
-                : 'MASUK',
-              qrTokenUsed: getTeacherQrCodeId(tch.id, tch.nip),
-              verifiedByUid: firebaseUser!.uid,
-              verifiedByName: userProfile!.name,
-              notes: sp.notes,
-              createdAt: nowIso,
-              updatedAt: nowIso,
-            };
-            batch.set(doc(db, 'teacherAttendance', tAttId), rec);
-          });
+
+          if (!rombelBSnap.exists()) {
+            for (const cls of INITIAL_CLASSES) {
+              batch.set(
+                doc(db, 'classes', cls.id),
+                { ...cls, createdAt: nowIso },
+                { merge: true }
+              );
+            }
+          }
+
+          if (!mapelSnap.exists()) {
+            for (const tch of INITIAL_TEACHERS) {
+              batch.set(
+                doc(db, 'teachers', tch.id),
+                { ...tch, createdAt: nowIso },
+                { merge: true }
+              );
+            }
+          }
+
+          if (!mapelAttSnap.exists()) {
+            INITIAL_TEACHERS.forEach((tch) => {
+              const sp = SAMPLE_TEACHER_ATTENDANCE_BY_ID[tch.id];
+              if (!sp) return;
+              const tAttId = `${todayStr}_${tch.id}`;
+              const rec: TeacherAttendanceRecord = {
+                id: tAttId,
+                teacherId: tch.id,
+                nip: tch.nip,
+                teacherName: tch.fullName,
+                role: tch.role,
+                classId: tch.classId,
+                className: tch.className,
+                date: todayStr,
+                academicYear: settings.activeAcademicYear || '2026/2027',
+                status: sp.status,
+                checkInTime: sp.checkInTime,
+                checkOutTime: sp.checkOutTime,
+                session: sp.checkOutTime
+                  ? 'PULANG'
+                  : sp.status === 'DINAS_LUAR'
+                  ? 'MANUAL'
+                  : 'MASUK',
+                qrTokenUsed: getTeacherQrCodeId(tch.id, tch.nip),
+                verifiedByUid: firebaseUser!.uid,
+                verifiedByName: userProfile!.name,
+                notes: sp.notes,
+                createdAt: nowIso,
+                updatedAt: nowIso,
+              };
+              batch.set(doc(db, 'teacherAttendance', tAttId), rec, { merge: true });
+            });
+          }
+
           await batch.commit();
         }
       } catch {
@@ -2166,6 +2181,7 @@ export default function App() {
               teachers={teachers}
               classes={classes}
               attendance={attendance}
+              teacherAttendance={teacherAttendance}
               notificationLogs={notificationLogs}
               auditLogs={auditLogs}
               announcements={announcements}
@@ -2182,6 +2198,7 @@ export default function App() {
               teachers={teachers}
               classes={classes}
               attendance={attendance}
+              teacherAttendance={teacherAttendance}
               settings={settings}
               siteContent={siteContent}
               announcements={announcements}
@@ -2276,8 +2293,10 @@ export default function App() {
             <QrGeneratorView
               userProfile={userProfile}
               students={students}
+              teachers={teachers}
               classes={classes}
               qrTokens={qrTokens}
+              schoolName={siteContent.schoolName}
               onRegenerateStudentQr={handleRegenerateStudentQr}
               onBulkRegenerateQr={handleBulkRegenerateQr}
               onNavigate={setActivePage}
@@ -2287,6 +2306,7 @@ export default function App() {
           {activePage === 'id-cards' && (
             <StudentIdCardsView
               students={students}
+              teachers={teachers}
               classes={classes}
               settings={settings}
               tagline={siteContent.tagline}
@@ -2311,19 +2331,27 @@ export default function App() {
             <AttendanceDataView
               userProfile={userProfile}
               students={students}
+              teachers={teachers}
               classes={classes}
               attendance={attendance}
+              teacherAttendance={teacherAttendance}
               auditLogs={auditLogs}
               settings={settings}
               onUpdateAttendanceManual={handleUpdateAttendanceManual}
+              onRecordTeacherScanOrSelf={handleRecordTeacherScanOrSelf}
+              onUpdateTeacherAttendanceManual={handleUpdateTeacherAttendanceManual}
+              onNavigate={setActivePage}
             />
           )}
 
           {activePage === 'attendance-reports' && (
             <AttendanceReportsView
+              userProfile={userProfile}
               students={students}
+              teachers={teachers}
               classes={classes}
               attendance={attendance}
+              teacherAttendance={teacherAttendance}
               settings={settings}
             />
           )}
