@@ -329,7 +329,7 @@ export const PrincipalDashboardView: React.FC<PrincipalDashboardViewProps> = ({
     exportAttendanceToPdf(
       dateAttendance,
       `Laporan Eksekutif Kehadiran Kepala Sekolah — ${formatIndonesianDate(selectedDate)}`,
-      `Kelas: Seluruh Rombel (1A–6A) · Total Siswa Aktif: ${activeStudents.length} · Tingkat Kehadiran: ${executiveStats.attendanceRate}%`,
+      `Kelas: Seluruh Rombel (1A–6B) · Total Siswa Aktif: ${activeStudents.length} · Tingkat Kehadiran: ${executiveStats.attendanceRate}%`,
       settings
     );
   };

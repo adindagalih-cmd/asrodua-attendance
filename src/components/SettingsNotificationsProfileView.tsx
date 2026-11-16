@@ -9,12 +9,18 @@ import {
   User,
   Calendar,
   Plus,
+  RotateCcw,
+  AlertTriangle,
+  Users,
+  GraduationCap,
 } from 'lucide-react';
 import {
   AcademicYear,
   AttendanceSettings,
   AuditLog,
   NotificationLog,
+  ResetDataResult,
+  ResetDataScope,
   SchoolClass,
   UserProfile,
   UserRole,
@@ -244,6 +250,12 @@ interface SettingsViewProps {
   onSaveSettings: (updated: AttendanceSettings) => Promise<void>;
   onAddAcademicYear: (year: string, semester: 'GANJIL' | 'GENAP') => Promise<void>;
   onActivateAcademicYear: (ay: AcademicYear) => Promise<void>;
+  teacherCount?: number;
+  studentCount?: number;
+  onResetSchoolData?: (
+    scope: ResetDataScope,
+    includeAttendance: boolean
+  ) => Promise<ResetDataResult>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -254,6 +266,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSaveSettings,
   onAddAcademicYear,
   onActivateAcademicYear,
+  teacherCount = 0,
+  studentCount = 0,
+  onResetSchoolData,
 }) => {
   const canEditSettings =
     userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH';
@@ -262,6 +277,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [newSemester, setNewSemester] = useState<'GANJIL' | 'GENAP'>('GANJIL');
   const [isSaving, setIsSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [resetScopeModal, setResetScopeModal] = useState<ResetDataScope | null>(null);
+  const [includeAttendanceReset, setIncludeAttendanceReset] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetResultMsg, setResetResultMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(settings);
@@ -630,8 +649,165 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               ))}
             </div>
           </div>
+
+          {canEditSettings && onResetSchoolData && (
+            <div className="bg-white rounded-xl border border-rose-200 p-5 text-xs space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <h2 className="text-sm font-bold font-display text-slate-900">
+                    3. Reset Data Guru &amp; Siswa (Persiapan Data Baru)
+                  </h2>
+                  <p className="text-slate-600 mt-0.5 leading-relaxed">
+                    Kosongkan data guru dan/atau data siswa contoh agar Anda dapat memasukkan data
+                    sekolah resmi. Daftar rombel Kelas 1A–6B dan pengaturan sekolah tetap aman
+                    tersimpan.
+                  </p>
+                </div>
+              </div>
+
+              {resetResultMsg && (
+                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium">
+                  {resetResultMsg}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2.5 rounded-lg bg-[#F5F8FF] border border-slate-200 flex items-center justify-between">
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-[#0A3D91]" />
+                    <span>Data Guru/Staf:</span>
+                  </span>
+                  <strong className="font-mono text-slate-900">{teacherCount}</strong>
+                </div>
+                <div className="p-2.5 rounded-lg bg-[#F5F8FF] border border-slate-200 flex items-center justify-between">
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#0A3D91]" />
+                    <span>Data Siswa:</span>
+                  </span>
+                  <strong className="font-mono text-slate-900">{studentCount}</strong>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setResetScopeModal('BOTH')}
+                  className="px-3.5 py-2 font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Guru &amp; Siswa Sekaligus</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetScopeModal('TEACHERS')}
+                  className="px-3 py-2 font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer"
+                >
+                  Reset Data Guru Saja
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetScopeModal('STUDENTS')}
+                  className="px-3 py-2 font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer"
+                >
+                  Reset Data Siswa Saja
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {resetScopeModal && onResetSchoolData && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl text-xs">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-display text-slate-900">
+                  {resetScopeModal === 'BOTH'
+                    ? 'Reset Semua Data Guru & Siswa?'
+                    : resetScopeModal === 'TEACHERS'
+                    ? 'Reset Semua Data Guru & Staf?'
+                    : 'Reset Semua Data Siswa?'}
+                </h3>
+                <p className="text-slate-500 mt-0.5">
+                  Tindakan ini menghapus data terpilih langsung dari Firestore
+                </p>
+              </div>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed mb-4">
+              {resetScopeModal === 'BOTH' && (
+                <>
+                  Anda akan menghapus <strong>{teacherCount} data guru/staf</strong> dan{' '}
+                  <strong>{studentCount} data siswa</strong>. Setelah reset, data contoh tidak akan
+                  diisi otomatis lagi saat login sehingga Anda bebas mengisi data baru.
+                </>
+              )}
+              {resetScopeModal === 'TEACHERS' && (
+                <>
+                  Anda akan menghapus <strong>{teacherCount} data guru/staf</strong> dan mengosongkan
+                  wali kelas pada rombel agar siap diisi data guru baru.
+                </>
+              )}
+              {resetScopeModal === 'STUDENTS' && (
+                <>
+                  Anda akan menghapus <strong>{studentCount} data siswa</strong> beserta token QR
+                  pelajar lama agar siap diisi/diimport data siswa baru.
+                </>
+              )}
+            </p>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F5F8FF] border border-slate-200 text-slate-700 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeAttendanceReset}
+                onChange={(e) => setIncludeAttendanceReset(e.target.checked)}
+                className="mt-0.5 rounded text-[#0A3D91]"
+              />
+              <span>
+                Hapus juga seluruh riwayat absensi terkait (absensi guru, absensi siswa, token QR
+                lama, &amp; log notifikasi).
+              </span>
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setResetScopeModal(null)}
+                className="px-4 py-2 font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={async () => {
+                  setIsResetting(true);
+                  try {
+                    const res = await onResetSchoolData(resetScopeModal, includeAttendanceReset);
+                    setResetScopeModal(null);
+                    setResetResultMsg(
+                      `Reset berhasil! Terhapus: ${res.deletedTeachers} guru, ${res.deletedStudents} siswa, ${res.deletedTeacherAttendance + res.deletedStudentAttendance} riwayat absensi, ${res.deletedQrTokens} token QR.`
+                    );
+                    setTimeout(() => setResetResultMsg(null), 7000);
+                  } finally {
+                    setIsResetting(false);
+                  }
+                }}
+                className="px-4 py-2 font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>{isResetting ? 'Mereset Firestore...' : 'Ya, Reset Sekarang'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

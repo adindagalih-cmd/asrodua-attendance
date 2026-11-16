@@ -1,4 +1,4 @@
-import { doc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, writeBatch } from 'firebase/firestore';
 import {
   db,
   formatIndonesianDate,
@@ -100,7 +100,7 @@ export const INITIAL_ANNOUNCEMENTS: Announcement[] = [
     id: 'ann_welcome_tp2026',
     title: 'Penerapan Kartu Pelajar QR Code & Notifikasi WhatsApp Wali Murid',
     content:
-      'Mulai Tahun Pelajaran 2026/2027 Semester Ganjil, seluruh siswa Kelas 1A sampai 6A wajib memindai Kartu Pelajar QR Code saat tiba di gerbang sekolah maupun saat jam pulang. Notifikasi kehadiran akan langsung dikirim ke nomor WhatsApp orang tua/wali terdaftar.',
+      'Mulai Tahun Pelajaran 2026/2027 Semester Ganjil, seluruh siswa Kelas 1A sampai 6B wajib memindai Kartu Pelajar QR Code saat tiba di gerbang sekolah maupun saat jam pulang. Notifikasi kehadiran akan langsung dikirim ke nomor WhatsApp orang tua/wali terdaftar.',
     category: 'PENGUMUMAN',
     publishDate: getTodayDateString(),
     isPinned: true,
@@ -1044,7 +1044,7 @@ export async function seedSchoolDatabase(
     targetId: 'global',
     targetName: 'SDN ASEMROWO II/63 SURABAYA',
     previousValue: 'KOSONG',
-    newValue: `18 Siswa, 6 Kelas, 7 Guru/Staf (${formatIndonesianDate(todayStr)})`,
+    newValue: `18 Siswa, 12 Rombel (1A–6B), 18 Guru/Mapel & Staf (${formatIndonesianDate(todayStr)})`,
     reason: 'Inisialisasi data awal sistem ASRODUA SMART ATTENDANCE',
     actorUid,
     actorName,
@@ -1057,4 +1057,246 @@ export async function seedSchoolDatabase(
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'batch_seed');
   }
+}
+
+export const PARALLEL_CLASS_B_SAMPLE_STUDENTS: Array<{
+  id: string;
+  nis: string;
+  nisn: string;
+  fullName: string;
+  gender: 'L' | 'P';
+  birthPlaceDate: string;
+  classId: string;
+  className: string;
+  parentName: string;
+  parentWhatsapp: string;
+}> = [
+  {
+    id: 'std_1b_01',
+    nis: '6311',
+    nisn: '0134829111',
+    fullName: 'Bintang Pratama Jaya',
+    gender: 'L',
+    birthPlaceDate: 'Surabaya, 19 Mei 2019',
+    classId: 'cls_1b',
+    className: 'Kelas 1B',
+    parentName: 'Hendra Jaya',
+    parentWhatsapp: '6281234001101',
+  },
+  {
+    id: 'std_2b_01',
+    nis: '6211',
+    nisn: '0129481031',
+    fullName: 'Clarissa Putri Maharani',
+    gender: 'P',
+    birthPlaceDate: 'Surabaya, 23 Juli 2018',
+    classId: 'cls_2b',
+    className: 'Kelas 2B',
+    parentName: 'Rudi Hartono',
+    parentWhatsapp: '6281234001102',
+  },
+  {
+    id: 'std_3b_01',
+    nis: '6111',
+    nisn: '0118392021',
+    fullName: 'Daffa Alamsyah Putra',
+    gender: 'L',
+    birthPlaceDate: 'Surabaya, 10 Oktober 2017',
+    classId: 'cls_3b',
+    className: 'Kelas 3B',
+    parentName: 'Syamsul Arifin',
+    parentWhatsapp: '6281234001103',
+  },
+  {
+    id: 'std_4b_01',
+    nis: '6011',
+    nisn: '0107281911',
+    fullName: 'Elena Kusuma Wardani',
+    gender: 'P',
+    birthPlaceDate: 'Surabaya, 14 April 2016',
+    classId: 'cls_4b',
+    className: 'Kelas 4B',
+    parentName: 'Kusuma Wijaya',
+    parentWhatsapp: '6281234001104',
+  },
+  {
+    id: 'std_5b_01',
+    nis: '5911',
+    nisn: '0096172811',
+    fullName: 'Fauzan Hakim Maulana',
+    gender: 'L',
+    birthPlaceDate: 'Surabaya, 02 September 2015',
+    classId: 'cls_5b',
+    className: 'Kelas 5B',
+    parentName: 'Abdul Hakim',
+    parentWhatsapp: '6281234001105',
+  },
+  {
+    id: 'std_6b_01',
+    nis: '5811',
+    nisn: '0085061711',
+    fullName: 'Gita Kirana Salsabila',
+    gender: 'P',
+    birthPlaceDate: 'Surabaya, 27 Januari 2014',
+    classId: 'cls_6b',
+    className: 'Kelas 6B',
+    parentName: 'Bambang Setyawan',
+    parentWhatsapp: '6281234001106',
+  },
+];
+
+/**
+ * Safely provisions only missing classes (e.g. Kelas 1B–6B), missing teachers/Mapel,
+ * today's missing teacherAttendance records, and sample 1B–6B students
+ * WITHOUT overwriting existing documents or their immutable `createdAt` timestamps.
+ */
+export async function syncMissingRombelAndTeachers(
+  actorUid: string,
+  actorName: string,
+  academicYear = '2026/2027',
+  options?: { skipTeachers?: boolean; skipStudents?: boolean }
+): Promise<{ addedClasses: number; addedTeachers: number; addedStudents: number }> {
+  const skipTeachers = Boolean(options?.skipTeachers);
+  const skipStudents = Boolean(options?.skipStudents);
+  const nowIso = new Date().toISOString();
+  const todayStr = getTodayDateString();
+
+  const [classSnaps, teacherSnaps, teacherAttSnaps, studentSnaps] = await Promise.all([
+    Promise.all(INITIAL_CLASSES.map((c) => getDoc(doc(db, 'classes', c.id)))),
+    skipTeachers
+      ? Promise.resolve([])
+      : Promise.all(INITIAL_TEACHERS.map((t) => getDoc(doc(db, 'teachers', t.id)))),
+    skipTeachers
+      ? Promise.resolve([])
+      : Promise.all(
+          INITIAL_TEACHERS.map((t) => getDoc(doc(db, 'teacherAttendance', `${todayStr}_${t.id}`)))
+        ),
+    skipStudents
+      ? Promise.resolve([])
+      : Promise.all(PARALLEL_CLASS_B_SAMPLE_STUDENTS.map((s) => getDoc(doc(db, 'students', s.id)))),
+  ]);
+
+  const batch = writeBatch(db);
+  let addedClasses = 0;
+  let addedTeachers = 0;
+  let addedStudents = 0;
+  let totalOps = 0;
+
+  INITIAL_CLASSES.forEach((cls, idx) => {
+    if (!classSnaps[idx].exists()) {
+      batch.set(doc(db, 'classes', cls.id), {
+        ...cls,
+        homeroomTeacherId: skipTeachers ? '' : cls.homeroomTeacherId,
+        homeroomTeacherName: skipTeachers ? 'Belum Ditentukan' : cls.homeroomTeacherName,
+        academicYear,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+      addedClasses++;
+      totalOps++;
+    }
+  });
+
+  if (!skipTeachers) {
+    INITIAL_TEACHERS.forEach((tch, idx) => {
+      if (!teacherSnaps[idx]?.exists()) {
+        batch.set(doc(db, 'teachers', tch.id), {
+          ...tch,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+        addedTeachers++;
+        totalOps++;
+      }
+
+      if (!teacherAttSnaps[idx]?.exists()) {
+        const sp = SAMPLE_TEACHER_ATTENDANCE_BY_ID[tch.id];
+        if (sp) {
+          const tAttId = `${todayStr}_${tch.id}`;
+          const rec: TeacherAttendanceRecord = {
+            id: tAttId,
+            teacherId: tch.id,
+            nip: tch.nip,
+            teacherName: tch.fullName,
+            role: tch.role,
+            classId: tch.classId,
+            className: tch.className,
+            date: todayStr,
+            academicYear,
+            status: sp.status,
+            checkInTime: sp.checkInTime,
+            checkOutTime: sp.checkOutTime,
+            session: sp.checkOutTime
+              ? 'PULANG'
+              : sp.status === 'DINAS_LUAR' || sp.status === 'IZIN'
+              ? 'MANUAL'
+              : 'MASUK',
+            qrTokenUsed: getTeacherQrCodeId(tch.id, tch.nip),
+            verifiedByUid: actorUid,
+            verifiedByName: actorName,
+            notes: sp.notes,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          };
+          batch.set(doc(db, 'teacherAttendance', tAttId), rec);
+          totalOps++;
+        }
+      }
+    });
+  }
+
+  // Only populate sample 1B–6B students if any B-class was missing and students were not reset
+  if (addedClasses > 0 && !skipStudents) {
+    PARALLEL_CLASS_B_SAMPLE_STUDENTS.forEach((raw, idx) => {
+      if (!studentSnaps[idx]?.exists()) {
+        const { tokenId, tokenString } = generateSecureQrToken(raw.id, 1);
+        const studentDoc: Student = {
+          id: raw.id,
+          nis: raw.nis,
+          nisn: raw.nisn,
+          fullName: raw.fullName,
+          gender: raw.gender,
+          birthPlaceDate: raw.birthPlaceDate,
+          classId: raw.classId,
+          className: raw.className,
+          parentName: raw.parentName,
+          parentWhatsapp: raw.parentWhatsapp,
+          photoUrl: '',
+          status: 'AKTIF',
+          qrCodeId: tokenId,
+          qrToken: tokenString,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        const qrTokenDoc: QrToken = {
+          id: tokenId,
+          token: tokenString,
+          studentId: studentDoc.id,
+          studentNis: studentDoc.nis,
+          studentName: studentDoc.fullName,
+          classId: studentDoc.classId,
+          className: studentDoc.className,
+          status: 'ACTIVE',
+          version: 1,
+          createdAt: nowIso,
+          revokedAt: '',
+          createdBy: actorUid,
+        };
+        batch.set(doc(db, 'students', studentDoc.id), studentDoc);
+        batch.set(doc(db, 'qrTokens', qrTokenDoc.id), qrTokenDoc);
+        addedStudents++;
+        totalOps += 2;
+      }
+    });
+  }
+
+  if (totalOps > 0) {
+    try {
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'sync_missing_rombel_teachers');
+    }
+  }
+
+  return { addedClasses, addedTeachers, addedStudents };
 }

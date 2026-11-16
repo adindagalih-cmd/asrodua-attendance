@@ -12,8 +12,20 @@ import {
   Search,
   GraduationCap,
   Layers,
+  RefreshCw,
+  CheckCircle2,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
-import { PageId, SchoolClass, Student, Teacher, UserProfile, UserRole } from '../types';
+import {
+  PageId,
+  ResetDataResult,
+  SchoolClass,
+  Student,
+  Teacher,
+  UserProfile,
+  UserRole,
+} from '../types';
 import { SUBJECT_TEACHER_OPTIONS } from '../seedData';
 import { downloadTeacherQrPng } from '../utils/exportUtils';
 
@@ -27,6 +39,7 @@ interface TeachersViewProps {
     existingId?: string
   ) => Promise<void>;
   onDeleteTeacher: (teacher: Teacher) => Promise<void>;
+  onResetTeachers?: (includeAttendance: boolean) => Promise<ResetDataResult>;
   onNavigate?: (page: PageId) => void;
 }
 
@@ -46,12 +59,17 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
   schoolName = 'SDN ASEMROWO II/63 SURABAYA',
   onSaveTeacher,
   onDeleteTeacher,
+  onResetTeachers,
   onNavigate,
 }) => {
   const canEdit = userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [includeAttendanceReset, setIncludeAttendanceReset] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   const [categoryFilter, setCategoryFilter] = useState<
     'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
@@ -239,10 +257,32 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
                 <Plus className="w-4 h-4 text-[#D4AF37]" />
                 <span>+ Guru Wali Rombel / Staf</span>
               </button>
+              {onResetTeachers && (
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(true)}
+                  className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Data Guru</span>
+                </button>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {feedbackMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{feedbackMsg}</span>
+          </span>
+          <button onClick={() => setFeedbackMsg(null)} className="text-emerald-700 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Summary Cards & Category Filter */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -390,87 +430,97 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredTeachers.map((t) => {
-                const isMapel = isSubjectTeacher(t);
-                return (
-                  <tr key={t.id} className="hover:bg-slate-50/80">
-                    <td className="py-3 px-4 font-semibold text-slate-900">{t.fullName}</td>
-                    <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{t.nip}</td>
-                    <td className="py-3 px-4">
-                      {isMapel ? (
-                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                          Guru Mata Pelajaran
-                        </span>
-                      ) : t.role === 'SUPER_ADMIN' ? (
-                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                          Super Admin
-                        </span>
-                      ) : t.role === 'KEPALA_SEKOLAH' ? (
-                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-[#0A3D91] border border-blue-200">
-                          Kepala Sekolah
-                        </span>
-                      ) : t.role === 'ADMIN_SEKOLAH' || t.classId === 'ALL' ? (
-                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700">
-                          Staf / Tata Usaha
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          Wali Kelas (Rombel)
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">
-                      <p>{t.className}</p>
-                      {isMapel && (
-                        <p className="text-[11px] text-slate-500 font-normal">
-                          Mengajar Lintas Rombel (Kelas 1–6)
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="text-slate-800">{t.email}</p>
-                      <p className="font-mono tabular-nums text-slate-500">{t.phone}</p>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`font-semibold ${
-                          t.status === 'AKTIF' ? 'text-emerald-700' : 'text-slate-400'
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="inline-flex items-center gap-1">
-                        <button
-                          onClick={() => void downloadTeacherQrPng(t, schoolName)}
-                          title="Unduh Kartu QR Absensi Guru (PNG)"
-                          className="px-2 py-1 text-[11px] font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <QrCode className="w-3.5 h-3.5" />
-                          <span>QR</span>
-                        </button>
-                        {canEdit && (
-                          <>
-                            <button
-                              onClick={() => openEdit(t)}
-                              className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget(t)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
+              {filteredTeachers.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-10 text-center text-slate-500">
+                    {teachers.length === 0
+                      ? 'Belum ada data guru/staf. Klik "+ Guru Wali Rombel / Staf" atau "+ Guru Mata Pelajaran" untuk memasukkan data guru baru.'
+                      : 'Tidak ada data guru yang cocok dengan filter atau pencarian Anda.'}
+                  </td>
+                </tr>
+              ) : (
+                filteredTeachers.map((t) => {
+                  const isMapel = isSubjectTeacher(t);
+                  return (
+                    <tr key={t.id} className="hover:bg-slate-50/80">
+                      <td className="py-3 px-4 font-semibold text-slate-900">{t.fullName}</td>
+                      <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{t.nip}</td>
+                      <td className="py-3 px-4">
+                        {isMapel ? (
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Guru Mata Pelajaran
+                          </span>
+                        ) : t.role === 'SUPER_ADMIN' ? (
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                            Super Admin
+                          </span>
+                        ) : t.role === 'KEPALA_SEKOLAH' ? (
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-[#0A3D91] border border-blue-200">
+                            Kepala Sekolah
+                          </span>
+                        ) : t.role === 'ADMIN_SEKOLAH' || t.classId === 'ALL' ? (
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700">
+                            Staf / Tata Usaha
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Wali Kelas (Rombel)
+                          </span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">
+                        <p>{t.className}</p>
+                        {isMapel && (
+                          <p className="text-[11px] text-slate-500 font-normal">
+                            Mengajar Lintas Rombel (Kelas 1–6)
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <p className="text-slate-800">{t.email}</p>
+                        <p className="font-mono tabular-nums text-slate-500">{t.phone}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`font-semibold ${
+                            t.status === 'AKTIF' ? 'text-emerald-700' : 'text-slate-400'
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => void downloadTeacherQrPng(t, schoolName)}
+                            title="Unduh Kartu QR Absensi Guru (PNG)"
+                            className="px-2 py-1 text-[11px] font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>QR</span>
+                          </button>
+                          {canEdit && (
+                            <>
+                              <button
+                                onClick={() => openEdit(t)}
+                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteTarget(t)}
+                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -733,6 +783,77 @@ export const TeachersView: React.FC<TeachersViewProps> = ({
           </div>
         </div>
       )}
+
+      {isResetModalOpen && onResetTeachers && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-display text-slate-900">
+                  Reset Seluruh Data Guru &amp; Staf?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Persiapan pengisian data guru baru ke Firestore
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              Semua <strong>{teachers.length} data guru, wali kelas, guru mapel, dan staf</strong>{' '}
+              akan dihapus permanen dari Firestore. Daftar rombel (Kelas 1A–6B) tetap dipertahankan
+              dan nama wali kelas pada kartu kelas akan dikosongkan agar siap diisi guru baru.
+            </p>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F5F8FF] border border-slate-200 text-xs text-slate-700 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeAttendanceReset}
+                onChange={(e) => setIncludeAttendanceReset(e.target.checked)}
+                className="mt-0.5 rounded text-[#0A3D91]"
+              />
+              <span>
+                Hapus juga seluruh riwayat <strong>Absensi Guru &amp; Staf</strong> sebelumnya agar
+                rekap kembali bersih dari awal.
+              </span>
+            </label>
+
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-4 py-2 font-semibold text-slate-600 bg-slate-100 rounded-lg cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={async () => {
+                  setIsResetting(true);
+                  try {
+                    const res = await onResetTeachers(includeAttendanceReset);
+                    setIsResetModalOpen(false);
+                    setFeedbackMsg(
+                      `Reset selesai: ${res.deletedTeachers} data guru & ${res.deletedTeacherAttendance} riwayat absensi guru berhasil dihapus. Silakan masukkan data guru baru.`
+                    );
+                    setTimeout(() => setFeedbackMsg(null), 6000);
+                  } finally {
+                    setIsResetting(false);
+                  }
+                }}
+                className="px-4 py-2 font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>{isResetting ? 'Mereset...' : 'Ya, Reset Data Guru'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -747,7 +868,14 @@ interface ClassesViewProps {
     existingId?: string
   ) => Promise<void>;
   onDeleteClass: (cls: SchoolClass) => Promise<void>;
+  onSyncParallelRombel?: () => Promise<{
+    addedClasses: number;
+    addedTeachers: number;
+    addedStudents: number;
+  }>;
 }
+
+const PARALLEL_B_IDS = ['cls_1b', 'cls_2b', 'cls_3b', 'cls_4b', 'cls_5b', 'cls_6b'] as const;
 
 export const ClassesView: React.FC<ClassesViewProps> = ({
   userProfile,
@@ -756,11 +884,19 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
   students,
   onSaveClass,
   onDeleteClass,
+  onSyncParallelRombel,
 }) => {
   const canEdit = userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
   const [gradeFilter, setGradeFilter] = useState<number | 'ALL'>('ALL');
+  const [isSyncingParallel, setIsSyncingParallel] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const missingParallelB = useMemo(
+    () => PARALLEL_B_IDS.filter((id) => !classes.some((c) => c.id === id)),
+    [classes]
+  );
 
   const [name, setName] = useState('');
   const [grade, setGrade] = useState(1);
@@ -794,10 +930,27 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
     setEditingClass(cls);
     setName(cls.name);
     setGrade(cls.grade);
+    const matchSuffix = cls.name.trim().toUpperCase().match(/([ABCD])$/);
+    setRombelSuffix((matchSuffix?.[1] as 'A' | 'B' | 'C' | 'D') || 'A');
     setHomeroomTeacherId(cls.homeroomTeacherId);
     setAcademicYear(cls.academicYear);
     setCapacity(cls.capacity);
     setIsModalOpen(true);
+  };
+
+  const handleSyncParallelClick = async () => {
+    if (!onSyncParallelRombel || isSyncingParallel) return;
+    setIsSyncingParallel(true);
+    setSyncNotice(null);
+    try {
+      const res = await onSyncParallelRombel();
+      setSyncNotice(
+        `Berhasil menambahkan ${res.addedClasses} rombel paralel (1B–6B), ${res.addedTeachers} wali kelas/guru mapel, dan ${res.addedStudents} siswa awal.`
+      );
+      setTimeout(() => setSyncNotice(null), 6000);
+    } finally {
+      setIsSyncingParallel(false);
+    }
   };
 
   const handleApplyRombelPreset = (g: number, suffix: 'A' | 'B' | 'C' | 'D') => {
@@ -847,6 +1000,41 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
           </button>
         )}
       </div>
+
+      {syncNotice && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-3 text-xs font-semibold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
+
+      {canEdit && onSyncParallelRombel && missingParallelB.length > 0 && (
+        <div className="bg-[#F5F8FF] border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-xs space-y-0.5">
+            <p className="font-bold text-[#0A3D91]">
+              Rombel Paralel Kelas 1B–6B Belum Lengkap ({missingParallelB.length} rombel belum
+              tersedia)
+            </p>
+            <p className="text-slate-600">
+              Klik tombol di samping untuk menambahkan otomatis Kelas 1B, 2B, 3B, 4B, 5B, dan 6B
+              beserta wali kelas pengampu ke Firestore.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={isSyncingParallel}
+            onClick={handleSyncParallelClick}
+            className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#0A3D91] hover:bg-[#082f70] disabled:opacity-60 text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 text-[#D4AF37] ${isSyncingParallel ? 'animate-spin' : ''}`}
+            />
+            <span>
+              {isSyncingParallel ? 'Menyinkronkan...' : 'Tambahkan Kelas 1B–6B Otomatis'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Filter Tingkat Kelas (1 - 6) */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">

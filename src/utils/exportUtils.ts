@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import {
   AttendanceRecord,
   AttendanceSettings,
+  SchoolClass,
   Student,
   Teacher,
   TeacherAttendanceRecord,
@@ -537,16 +538,37 @@ export function exportFullAttendanceRangeToExcel({
   XLSX.writeFile(wb, `Absensi_${safeClass}_${datePart}.xlsx`);
 }
 
-// Export Attendance Report to Official School PDF
-export function exportAttendanceToPdf(
-  records: AttendanceRecord[],
+const INDONESIAN_MONTHS = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+export function formatIndonesianMonthYear(monthStr: string): string {
+  const [year, month] = monthStr.split('-');
+  const monthIdx = Number(month) - 1;
+  if (!year || Number.isNaN(monthIdx) || monthIdx < 0 || monthIdx > 11) {
+    return monthStr;
+  }
+  return `${INDONESIAN_MONTHS[monthIdx]} ${year}`;
+}
+
+function applyPdfLetterhead(
+  doc: jsPDF,
+  settings: AttendanceSettings,
   reportTitle: string,
   filterSubtitle: string,
-  settings: AttendanceSettings
+  summaryLine: string
 ): void {
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
-  // Official Letterhead Header
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(10, 61, 145);
@@ -578,32 +600,88 @@ export function exportAttendanceToPdf(
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
   doc.text(filterSubtitle, 14, 40.5);
+  doc.text(summaryLine, 14, 46);
+}
 
-  // Summary Counts
+function applyPdfSignatureAndFooters(doc: jsPDF, settings: AttendanceSettings): void {
+  const lastY =
+    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 140;
+
+  let signY = lastY + 12;
+  if (signY + 34 > 195) {
+    doc.addPage();
+    signY = 24;
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(
+    `Surabaya, ${formatIndonesianDate(new Date().toISOString().slice(0, 10))}`,
+    218,
+    signY
+  );
+  doc.text('Mengetahui, Kepala Sekolah', 218, signY + 5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(settings.principalName || 'Kepala Sekolah', 218, signY + 23);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`NIP. ${settings.principalNip || '-'}`, 218, signY + 28);
+
+  const totalPages = doc.getNumberOfPages();
+  const printTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `${settings.schoolName} — ASRODUA Smart Attendance · Dicetak: ${printTime} WIB`,
+      14,
+      203
+    );
+    doc.text(`Halaman ${p} dari ${totalPages}`, 283, 203, { align: 'right' });
+  }
+}
+
+// Export Attendance Report to Official School PDF
+export function exportAttendanceToPdf(
+  records: AttendanceRecord[],
+  reportTitle: string,
+  filterSubtitle: string,
+  settings: AttendanceSettings,
+  fileName?: string
+): void {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
   const hadir = records.filter((r) => r.status === 'HADIR').length;
   const terlambat = records.filter((r) => r.status === 'TERLAMBAT').length;
   const izin = records.filter((r) => r.status === 'IZIN').length;
   const sakit = records.filter((r) => r.status === 'SAKIT').length;
   const alpa = records.filter((r) => r.status === 'ALPA').length;
 
-  doc.text(
-    `Ringkasan: Total Data = ${records.length}  |  Hadir = ${hadir}  |  Terlambat = ${terlambat}  |  Izin = ${izin}  |  Sakit = ${sakit}  |  Alpa = ${alpa}`,
-    14,
-    46
+  applyPdfLetterhead(
+    doc,
+    settings,
+    reportTitle,
+    filterSubtitle,
+    `Ringkasan: Total Data = ${records.length}  |  Hadir = ${hadir}  |  Terlambat = ${terlambat}  |  Izin = ${izin}  |  Sakit = ${sakit}  |  Alpa = ${alpa}`
   );
 
-  const tableRows = records.map((r, i) => [
-    String(i + 1),
-    r.date,
-    r.nis,
-    r.studentName,
-    r.className,
-    r.status,
-    r.checkInTime || '-',
-    r.checkOutTime || '-',
-    r.notes || '-',
-    r.verifiedByName,
-  ]);
+  const tableRows =
+    records.length > 0
+      ? records.map((r, i) => [
+          String(i + 1),
+          r.date,
+          r.nis,
+          r.studentName,
+          r.className,
+          r.status,
+          r.checkInTime || '-',
+          r.checkOutTime || '-',
+          r.notes || '-',
+          r.verifiedByName,
+        ])
+      : [['-', '-', '-', 'Belum ada data absensi pada filter/periode ini', '-', '-', '-', '-', '-', '-']];
 
   autoTable(doc, {
     startY: 50,
@@ -636,23 +714,310 @@ export function exportAttendanceToPdf(
     },
   });
 
-  const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 140;
-  const signY = Math.min(finalY + 12, 175);
+  applyPdfSignatureAndFooters(doc, settings);
 
-  doc.setFontSize(9.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(
-    `Surabaya, ${formatIndonesianDate(new Date().toISOString().slice(0, 10))}`,
-    225,
-    signY
+  doc.save(
+    fileName || `Laporan_Absensi_SDN_Asemrowo_II_63_${new Date().toISOString().slice(0, 10)}.pdf`
   );
-  doc.text('Mengetahui, Kepala Sekolah', 225, signY + 5);
-  doc.setFont('helvetica', 'bold');
-  doc.text(settings.principalName, 225, signY + 23);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`NIP. ${settings.principalNip}`, 225, signY + 28);
+}
 
-  doc.save(`Laporan_Absensi_SDN_Asemrowo_II_63_${new Date().toISOString().slice(0, 10)}.pdf`);
+export interface MonthlyStudentRecapRow {
+  student: Student;
+  hadir: number;
+  terlambat: number;
+  izin: number;
+  sakit: number;
+  alpa: number;
+  total: number;
+  pct: number;
+}
+
+export interface MonthlyClassRecapRow {
+  cls: SchoolClass;
+  studentCount: number;
+  hadir: number;
+  terlambat: number;
+  izin: number;
+  sakit: number;
+  alpa: number;
+  pct: number;
+}
+
+export function exportMonthlyStudentRecapToPdf(options: {
+  monthLabel: string;
+  monthKey: string;
+  classLabel: string;
+  studentRows: MonthlyStudentRecapRow[];
+  classRows?: MonthlyClassRecapRow[];
+  dailyRecordsCount: number;
+  settings: AttendanceSettings;
+  titleOverride?: string;
+}): void {
+  const {
+    monthLabel,
+    monthKey,
+    classLabel,
+    studentRows,
+    classRows = [],
+    dailyRecordsCount,
+    settings,
+    titleOverride,
+  } = options;
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  const totals = studentRows.reduce(
+    (acc, r) => ({
+      hadir: acc.hadir + r.hadir,
+      terlambat: acc.terlambat + r.terlambat,
+      izin: acc.izin + r.izin,
+      sakit: acc.sakit + r.sakit,
+      alpa: acc.alpa + r.alpa,
+      total: acc.total + r.total,
+    }),
+    { hadir: 0, terlambat: 0, izin: 0, sakit: 0, alpa: 0, total: 0 }
+  );
+  const avgPct =
+    totals.total > 0
+      ? Math.round(((totals.hadir + totals.terlambat) / totals.total) * 100)
+      : 0;
+
+  applyPdfLetterhead(
+    doc,
+    settings,
+    titleOverride || 'LAPORAN REKAPITULASI BULANAN KEHADIRAN SISWA',
+    `Periode: ${monthLabel}  |  Rombel: ${classLabel}  |  Total Siswa: ${studentRows.length}  |  Catatan Kehadiran: ${dailyRecordsCount}`,
+    `Ringkasan: Hadir = ${totals.hadir}  |  Terlambat = ${totals.terlambat}  |  Izin = ${totals.izin}  |  Sakit = ${totals.sakit}  |  Alpa = ${totals.alpa}  |  Tingkat Kehadiran = ${avgPct}%`
+  );
+
+  if (classRows.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(10, 61, 145);
+    doc.text('A. REKAPITULASI PER ROMBONGAN BELAJAR (ROMBEL)', 14, 53);
+
+    autoTable(doc, {
+      startY: 56,
+      head: [
+        [
+          'No',
+          'Rombel',
+          'Wali Kelas',
+          'Siswa Aktif',
+          'Hadir',
+          'Terlambat',
+          'Izin',
+          'Sakit',
+          'Alpa',
+          '% Hadir',
+        ],
+      ],
+      body: classRows.map((c, idx) => [
+        String(idx + 1),
+        c.cls.name,
+        c.cls.homeroomTeacherName || '-',
+        String(c.studentCount),
+        String(c.hadir),
+        String(c.terlambat),
+        String(c.izin),
+        String(c.sakit),
+        String(c.alpa),
+        `${c.pct}%`,
+      ]),
+      styles: { fontSize: 8.5, cellPadding: 2.1 },
+      headStyles: { fillColor: [10, 61, 145], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 248, 255] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        3: { halign: 'right' },
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right' },
+        7: { halign: 'right' },
+        8: { halign: 'right' },
+        9: { halign: 'right', fontStyle: 'bold' },
+      },
+    });
+  }
+
+  const prevY =
+    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 50;
+  let nextStartY = classRows.length > 0 ? prevY + 10 : 54;
+  if (classRows.length > 0 && nextStartY > 165) {
+    doc.addPage();
+    nextStartY = 20;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(10, 61, 145);
+  doc.text(
+    classRows.length > 0
+      ? 'B. REKAPITULASI KEHADIRAN PER SISWA'
+      : 'REKAPITULASI KEHADIRAN PER SISWA',
+    14,
+    nextStartY - 2
+  );
+
+  const studentTableBody =
+    studentRows.length > 0
+      ? studentRows.map((r, idx) => [
+          String(idx + 1),
+          r.student.nis,
+          r.student.fullName,
+          r.student.className,
+          String(r.hadir),
+          String(r.terlambat),
+          String(r.izin),
+          String(r.sakit),
+          String(r.alpa),
+          String(r.total),
+          `${r.pct}%`,
+        ])
+      : [['-', '-', 'Belum ada data siswa aktif untuk filter ini', '-', '0', '0', '0', '0', '0', '0', '0%']];
+
+  autoTable(doc, {
+    startY: nextStartY + 1,
+    head: [
+      [
+        'No',
+        'NIS',
+        'Nama Siswa',
+        'Rombel',
+        'Hadir',
+        'Terlambat',
+        'Izin',
+        'Sakit',
+        'Alpa',
+        'Total',
+        '% Kehadiran',
+      ],
+    ],
+    body: studentTableBody,
+    styles: { fontSize: 8.5, cellPadding: 2.1 },
+    headStyles: { fillColor: [10, 61, 145], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [245, 248, 255] },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      4: { halign: 'right' },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
+      7: { halign: 'right' },
+      8: { halign: 'right' },
+      9: { halign: 'right' },
+      10: { halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  applyPdfSignatureAndFooters(doc, settings);
+
+  const safeClass = classLabel.replace(/[^a-zA-Z0-9]/g, '_');
+  doc.save(`Rekap_Bulanan_Absensi_Siswa_${safeClass}_${monthKey}.pdf`);
+}
+
+export interface MonthlyTeacherRecapRow {
+  teacher: Teacher;
+  hadir: number;
+  terlambat: number;
+  dinasLuar: number;
+  izin: number;
+  sakit: number;
+  alpa: number;
+  total: number;
+  pct: number;
+}
+
+export function exportMonthlyTeacherRecapToPdf(options: {
+  monthLabel: string;
+  monthKey: string;
+  categoryLabel: string;
+  teacherRows: MonthlyTeacherRecapRow[];
+  settings: AttendanceSettings;
+  titleOverride?: string;
+}): void {
+  const { monthLabel, monthKey, categoryLabel, teacherRows, settings, titleOverride } = options;
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  const totals = teacherRows.reduce(
+    (acc, r) => ({
+      hadir: acc.hadir + r.hadir,
+      terlambat: acc.terlambat + r.terlambat,
+      dinasLuar: acc.dinasLuar + r.dinasLuar,
+      izinSakit: acc.izinSakit + r.izin + r.sakit,
+      alpa: acc.alpa + r.alpa,
+      total: acc.total + r.total,
+    }),
+    { hadir: 0, terlambat: 0, dinasLuar: 0, izinSakit: 0, alpa: 0, total: 0 }
+  );
+  const avgPct =
+    totals.total > 0
+      ? Math.round(((totals.hadir + totals.terlambat + totals.dinasLuar) / totals.total) * 100)
+      : 0;
+
+  applyPdfLetterhead(
+    doc,
+    settings,
+    titleOverride || 'LAPORAN REKAPITULASI BULANAN KEHADIRAN GURU & STAF',
+    `Periode: ${monthLabel}  |  Kategori: ${categoryLabel}  |  Total Pendidik & Staf: ${teacherRows.length}`,
+    `Ringkasan: Hadir = ${totals.hadir}  |  Terlambat = ${totals.terlambat}  |  Dinas Luar = ${totals.dinasLuar}  |  Izin/Sakit = ${totals.izinSakit}  |  Alpa = ${totals.alpa}  |  Kehadiran = ${avgPct}%`
+  );
+
+  const tableBody =
+    teacherRows.length > 0
+      ? teacherRows.map((r, idx) => [
+          String(idx + 1),
+          r.teacher.nip || '-',
+          r.teacher.fullName,
+          r.teacher.role.replace('_', ' '),
+          r.teacher.className,
+          String(r.hadir),
+          String(r.terlambat),
+          String(r.dinasLuar),
+          String(r.izin + r.sakit),
+          String(r.alpa),
+          String(r.total),
+          `${r.pct}%`,
+        ])
+      : [['-', '-', 'Belum ada data guru/staf aktif untuk filter ini', '-', '-', '0', '0', '0', '0', '0', '0', '0%']];
+
+  autoTable(doc, {
+    startY: 51,
+    head: [
+      [
+        'No',
+        'NIP',
+        'Nama Guru / Staf',
+        'Jabatan',
+        'Rombel / Mapel',
+        'Hadir',
+        'Terlambat',
+        'Dinas Luar',
+        'Izin/Sakit',
+        'Alpa',
+        'Total',
+        '% Hadir',
+      ],
+    ],
+    body: tableBody,
+    styles: { fontSize: 8.5, cellPadding: 2.1 },
+    headStyles: { fillColor: [10, 61, 145], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [245, 248, 255] },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
+      7: { halign: 'right' },
+      8: { halign: 'right' },
+      9: { halign: 'right' },
+      10: { halign: 'right' },
+      11: { halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  applyPdfSignatureAndFooters(doc, settings);
+
+  doc.save(`Rekap_Bulanan_Absensi_Guru_${monthKey}.pdf`);
 }
 
 // Render high-resolution QR Card PNG for Teacher / Staff
@@ -877,41 +1242,10 @@ export function exportTeacherAttendanceToPdf(
   unrecordedTeachers: Teacher[],
   reportTitle: string,
   filterSubtitle: string,
-  settings: AttendanceSettings
+  settings: AttendanceSettings,
+  fileName?: string
 ): void {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(10, 61, 145);
-  doc.text('PEMERINTAH KOTA SURABAYA — DINAS PENDIDIKAN', 148.5, 12, { align: 'center' });
-
-  doc.setFontSize(16);
-  doc.text(settings.schoolName.toUpperCase(), 148.5, 19, { align: 'center' });
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-  doc.text(
-    `${settings.schoolAddress}  |  NPSN: ${settings.npsn}  |  Tahun Pelajaran: ${settings.activeAcademicYear} (${settings.semester})`,
-    148.5,
-    24.5,
-    { align: 'center' }
-  );
-
-  doc.setDrawColor(10, 61, 145);
-  doc.setLineWidth(0.7);
-  doc.line(14, 27.5, 283, 27.5);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(15, 23, 42);
-  doc.text(reportTitle.toUpperCase(), 14, 35);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text(filterSubtitle, 14, 40.5);
 
   const hadir = records.filter((r) => r.status === 'HADIR').length;
   const terlambat = records.filter((r) => r.status === 'TERLAMBAT').length;
@@ -920,10 +1254,12 @@ export function exportTeacherAttendanceToPdf(
   const sakit = records.filter((r) => r.status === 'SAKIT').length;
   const alpa = records.filter((r) => r.status === 'ALPA').length;
 
-  doc.text(
-    `Ringkasan: Tercatat = ${records.length}  |  Hadir = ${hadir}  |  Terlambat = ${terlambat}  |  Dinas Luar = ${dinasLuar}  |  Izin = ${izin}  |  Sakit = ${sakit}  |  Alpa = ${alpa}  |  Belum Absen = ${unrecordedTeachers.length}`,
-    14,
-    46
+  applyPdfLetterhead(
+    doc,
+    settings,
+    reportTitle,
+    filterSubtitle,
+    `Ringkasan: Tercatat = ${records.length}  |  Hadir = ${hadir}  |  Terlambat = ${terlambat}  |  Dinas Luar = ${dinasLuar}  |  Izin = ${izin}  |  Sakit = ${sakit}  |  Alpa = ${alpa}  |  Belum Absen = ${unrecordedTeachers.length}`
   );
 
   const tableRows: string[][] = records.map((r, i) => [
@@ -953,6 +1289,21 @@ export function exportTeacherAttendanceToPdf(
       'Belum melakukan presensi',
     ]);
   });
+
+  if (tableRows.length === 0) {
+    tableRows.push([
+      '-',
+      '-',
+      '-',
+      'Belum ada data presensi guru/staf pada periode ini',
+      '-',
+      '-',
+      '-',
+      '-',
+      '-',
+      '-',
+    ]);
+  }
 
   autoTable(doc, {
     startY: 50,
@@ -985,23 +1336,10 @@ export function exportTeacherAttendanceToPdf(
     },
   });
 
-  const finalY =
-    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 140;
-  const signY = Math.min(finalY + 12, 175);
+  applyPdfSignatureAndFooters(doc, settings);
 
-  doc.setFontSize(9.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(
-    `Surabaya, ${formatIndonesianDate(new Date().toISOString().slice(0, 10))}`,
-    225,
-    signY
+  doc.save(
+    fileName || `Laporan_Absensi_Guru_SDN_Asemrowo_II_63_${new Date().toISOString().slice(0, 10)}.pdf`
   );
-  doc.text('Mengetahui, Kepala Sekolah', 225, signY + 5);
-  doc.setFont('helvetica', 'bold');
-  doc.text(settings.principalName, 225, signY + 23);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`NIP. ${settings.principalNip}`, 225, signY + 28);
-
-  doc.save(`Laporan_Absensi_Guru_SDN_Asemrowo_II_63_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 

@@ -32,8 +32,11 @@ import {
   exportAttendanceToExcel,
   exportAttendanceToPdf,
   exportFullAttendanceRangeToExcel,
+  exportMonthlyStudentRecapToPdf,
+  exportMonthlyTeacherRecapToPdf,
   exportTeacherAttendanceToExcel,
   exportTeacherAttendanceToPdf,
+  formatIndonesianMonthYear,
 } from '../utils/exportUtils';
 import { TeacherAttendanceView } from './TeacherAttendanceView';
 
@@ -919,10 +922,21 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     'ALL' | 'WALI_KELAS' | 'GURU_MAPEL' | 'STAF'
   >('ALL');
 
+  const [monthlyViewMode, setMonthlyViewMode] = useState<'RECAP' | 'DAILY'>('RECAP');
+
+  const weekStartStr = useMemo(() => {
+    const base = new Date(`${filterDate || todayStr}T00:00:00Z`);
+    base.setUTCDate(base.getUTCDate() - 6);
+    return base.toISOString().slice(0, 10);
+  }, [filterDate, todayStr]);
+
   const filteredRecords = useMemo(() => {
     const q = filterStudentQuery.toLowerCase().trim();
     return attendance.filter((r) => {
       if (reportTab === 'HARIAN' && filterDate && r.date !== filterDate) return false;
+      if (reportTab === 'MINGGUAN' && (r.date < weekStartStr || r.date > (filterDate || todayStr))) {
+        return false;
+      }
       if (reportTab === 'BULANAN' && filterMonth && !r.date.startsWith(filterMonth)) return false;
       if (reportTab === 'TAHUNAN' && filterYear && !r.date.startsWith(filterYear)) return false;
       if (filterClassId !== 'ALL' && r.classId !== filterClassId) return false;
@@ -936,6 +950,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     attendance,
     reportTab,
     filterDate,
+    weekStartStr,
+    todayStr,
     filterMonth,
     filterYear,
     filterClassId,
@@ -947,6 +963,9 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     const q = filterStudentQuery.toLowerCase().trim();
     return teacherAttendance.filter((r) => {
       if (reportTab === 'HARIAN' && filterDate && r.date !== filterDate) return false;
+      if (reportTab === 'MINGGUAN' && (r.date < weekStartStr || r.date > (filterDate || todayStr))) {
+        return false;
+      }
       if (reportTab === 'BULANAN' && filterMonth && !r.date.startsWith(filterMonth)) return false;
       if (reportTab === 'TAHUNAN' && filterYear && !r.date.startsWith(filterYear)) return false;
       const isMapel =
@@ -970,6 +989,8 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
     teacherAttendance,
     reportTab,
     filterDate,
+    weekStartStr,
+    todayStr,
     filterMonth,
     filterYear,
     teacherCategoryFilter,
@@ -1022,6 +1043,54 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       });
   }, [teachers, teacherAttendance, teacherCategoryFilter, filterStudentQuery]);
 
+  const monthlyTeacherRecapRows = useMemo(() => {
+    const q = filterStudentQuery.toLowerCase().trim();
+    return teachers
+      .filter((t) => {
+        if (t.status !== 'AKTIF') return false;
+        const isMapel =
+          t.classId.startsWith('MAPEL_') || t.className.toLowerCase().includes('mapel');
+        const isWali = t.role === 'GURU' && !isMapel && t.classId !== 'ALL';
+        if (teacherCategoryFilter === 'WALI_KELAS' && !isWali) return false;
+        if (teacherCategoryFilter === 'GURU_MAPEL' && !isMapel) return false;
+        if (teacherCategoryFilter === 'STAF' && (isWali || isMapel)) return false;
+        if (
+          q &&
+          !t.fullName.toLowerCase().includes(q) &&
+          !t.nip.toLowerCase().includes(q) &&
+          !t.className.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((t) => {
+        const recs = teacherAttendance.filter(
+          (a) => a.teacherId === t.id && (!filterMonth || a.date.startsWith(filterMonth))
+        );
+        const hadir = recs.filter((a) => a.status === 'HADIR').length;
+        const terlambat = recs.filter((a) => a.status === 'TERLAMBAT').length;
+        const dinasLuar = recs.filter((a) => a.status === 'DINAS_LUAR').length;
+        const izin = recs.filter((a) => a.status === 'IZIN').length;
+        const sakit = recs.filter((a) => a.status === 'SAKIT').length;
+        const alpa = recs.filter((a) => a.status === 'ALPA').length;
+        const pct = recs.length
+          ? Math.round(((hadir + terlambat + dinasLuar) / recs.length) * 100)
+          : 0;
+        return {
+          teacher: t,
+          hadir,
+          terlambat,
+          dinasLuar,
+          izin,
+          sakit,
+          alpa,
+          total: recs.length,
+          pct,
+        };
+      });
+  }, [teachers, teacherAttendance, filterMonth, teacherCategoryFilter, filterStudentQuery]);
+
   const studentRecapRows = useMemo(() => {
     const q = filterStudentQuery.toLowerCase().trim();
     return students
@@ -1039,11 +1108,35 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         const izin = recs.filter((a) => a.status === 'IZIN').length;
         const sakit = recs.filter((a) => a.status === 'SAKIT').length;
         const alpa = recs.filter((a) => a.status === 'ALPA').length;
-        const total = recs.length || 1;
-        const pct = Math.round(((hadir + terlambat) / total) * 100);
+        const pct = recs.length ? Math.round(((hadir + terlambat) / recs.length) * 100) : 0;
         return { student: s, hadir, terlambat, izin, sakit, alpa, total: recs.length, pct };
       });
   }, [students, attendance, filterClassId, filterStudentQuery]);
+
+  const monthlyStudentRecapRows = useMemo(() => {
+    const q = filterStudentQuery.toLowerCase().trim();
+    return students
+      .filter((s) => {
+        if (s.status !== 'AKTIF') return false;
+        if (filterClassId !== 'ALL' && s.classId !== filterClassId) return false;
+        if (q && !s.fullName.toLowerCase().includes(q) && !s.nis.toLowerCase().includes(q)) {
+          return false;
+        }
+        return true;
+      })
+      .map((s) => {
+        const recs = attendance.filter(
+          (a) => a.studentId === s.id && (!filterMonth || a.date.startsWith(filterMonth))
+        );
+        const hadir = recs.filter((a) => a.status === 'HADIR').length;
+        const terlambat = recs.filter((a) => a.status === 'TERLAMBAT').length;
+        const izin = recs.filter((a) => a.status === 'IZIN').length;
+        const sakit = recs.filter((a) => a.status === 'SAKIT').length;
+        const alpa = recs.filter((a) => a.status === 'ALPA').length;
+        const pct = recs.length ? Math.round(((hadir + terlambat) / recs.length) * 100) : 0;
+        return { student: s, hadir, terlambat, izin, sakit, alpa, total: recs.length, pct };
+      });
+  }, [students, attendance, filterMonth, filterClassId, filterStudentQuery]);
 
   const classRecapRows = useMemo(() => {
     return classes.map((cls) => {
@@ -1054,8 +1147,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       const izin = recs.filter((a) => a.status === 'IZIN').length;
       const sakit = recs.filter((a) => a.status === 'SAKIT').length;
       const alpa = recs.filter((a) => a.status === 'ALPA').length;
-      const denom = Math.max(1, clsStudents.length);
-      const pct = Math.min(100, Math.round(((hadir + terlambat) / denom) * 100));
+      const pct = recs.length ? Math.round(((hadir + terlambat) / recs.length) * 100) : 0;
       return {
         cls,
         studentCount: clsStudents.length,
@@ -1068,6 +1160,159 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
       };
     });
   }, [classes, students, attendance]);
+
+  const monthlyClassRecapRows = useMemo(() => {
+    const targetClasses =
+      filterClassId === 'ALL' ? classes : classes.filter((c) => c.id === filterClassId);
+    return targetClasses.map((cls) => {
+      const clsStudents = students.filter((s) => s.classId === cls.id && s.status === 'AKTIF');
+      const recs = attendance.filter(
+        (a) => a.classId === cls.id && (!filterMonth || a.date.startsWith(filterMonth))
+      );
+      const hadir = recs.filter((a) => a.status === 'HADIR').length;
+      const terlambat = recs.filter((a) => a.status === 'TERLAMBAT').length;
+      const izin = recs.filter((a) => a.status === 'IZIN').length;
+      const sakit = recs.filter((a) => a.status === 'SAKIT').length;
+      const alpa = recs.filter((a) => a.status === 'ALPA').length;
+      const pct = recs.length ? Math.round(((hadir + terlambat) / recs.length) * 100) : 0;
+      return {
+        cls,
+        studentCount: clsStudents.length,
+        hadir,
+        terlambat,
+        izin,
+        sakit,
+        alpa,
+        pct,
+      };
+    });
+  }, [classes, students, attendance, filterMonth, filterClassId]);
+
+  const activeClassLabel =
+    filterClassId === 'ALL'
+      ? 'Semua Rombel (1A–6B)'
+      : classes.find((c) => c.id === filterClassId)?.name || 'Semua Rombel';
+
+  const activeTeacherCategoryLabel =
+    teacherCategoryFilter === 'ALL'
+      ? 'Semua Guru & Staf'
+      : teacherCategoryFilter === 'WALI_KELAS'
+      ? 'Guru Kelas (Wali Rombel)'
+      : teacherCategoryFilter === 'GURU_MAPEL'
+      ? 'Guru Mata Pelajaran (Mapel)'
+      : 'Staf / Tata Usaha';
+
+  const monthDisplayLabel = formatIndonesianMonthYear(filterMonth);
+
+  const handleDownloadMonthlyPdf = () => {
+    if (reportTarget === 'SISWA') {
+      const monthDailyCount = attendance.filter((r) => {
+        if (filterMonth && !r.date.startsWith(filterMonth)) return false;
+        if (filterClassId !== 'ALL' && r.classId !== filterClassId) return false;
+        return true;
+      }).length;
+      exportMonthlyStudentRecapToPdf({
+        monthLabel: monthDisplayLabel,
+        monthKey: filterMonth,
+        classLabel: activeClassLabel,
+        studentRows: monthlyStudentRecapRows,
+        classRows: filterClassId === 'ALL' ? monthlyClassRecapRows : [],
+        dailyRecordsCount: monthDailyCount,
+        settings,
+      });
+    } else {
+      exportMonthlyTeacherRecapToPdf({
+        monthLabel: monthDisplayLabel,
+        monthKey: filterMonth,
+        categoryLabel: activeTeacherCategoryLabel,
+        teacherRows: monthlyTeacherRecapRows,
+        settings,
+      });
+    }
+  };
+
+  const handleExportActivePdf = () => {
+    if (reportTab === 'BULANAN') {
+      handleDownloadMonthlyPdf();
+      return;
+    }
+
+    if (reportTarget === 'SISWA') {
+      if (reportTab === 'PER_SISWA') {
+        exportMonthlyStudentRecapToPdf({
+          monthLabel: `Seluruh Periode (${settings.activeAcademicYear})`,
+          monthKey: `PerSiswa_${todayStr}`,
+          classLabel: activeClassLabel,
+          studentRows: studentRecapRows,
+          dailyRecordsCount: attendance.length,
+          settings,
+          titleOverride: 'LAPORAN REKAPITULASI KEHADIRAN PER SISWA',
+        });
+        return;
+      }
+
+      if (reportTab === 'PER_KELAS') {
+        exportMonthlyStudentRecapToPdf({
+          monthLabel: `Seluruh Periode (${settings.activeAcademicYear})`,
+          monthKey: `PerRombel_${todayStr}`,
+          classLabel: activeClassLabel,
+          studentRows: studentRecapRows,
+          classRows: classRecapRows,
+          dailyRecordsCount: attendance.length,
+          settings,
+          titleOverride: 'LAPORAN REKAPITULASI KEHADIRAN PER ROMBEL & SISWA',
+        });
+        return;
+      }
+
+      const periodLabel =
+        reportTab === 'HARIAN'
+          ? `Tanggal: ${formatIndonesianDate(filterDate)}`
+          : reportTab === 'MINGGUAN'
+          ? `Periode 7 Hari: ${weekStartStr} s/d ${filterDate}`
+          : `Tahun: ${filterYear}`;
+
+      exportAttendanceToPdf(
+        filteredRecords,
+        `LAPORAN REKAPITULASI ABSENSI SISWA (${reportTab})`,
+        `${periodLabel}  |  Rombel: ${activeClassLabel}`,
+        settings,
+        `Laporan_Absensi_Siswa_${reportTab}_${
+          reportTab === 'HARIAN' ? filterDate : reportTab === 'MINGGUAN' ? filterDate : filterYear
+        }.pdf`
+      );
+    } else {
+      if (reportTab === 'PER_SISWA') {
+        exportMonthlyTeacherRecapToPdf({
+          monthLabel: `Seluruh Periode (${settings.activeAcademicYear})`,
+          monthKey: `PerGuru_${todayStr}`,
+          categoryLabel: activeTeacherCategoryLabel,
+          teacherRows: teacherRecapRows,
+          settings,
+          titleOverride: 'LAPORAN REKAPITULASI KEHADIRAN PER GURU & STAF',
+        });
+        return;
+      }
+
+      const periodLabel =
+        reportTab === 'HARIAN'
+          ? `Tanggal: ${formatIndonesianDate(filterDate)}`
+          : reportTab === 'MINGGUAN'
+          ? `Periode 7 Hari: ${weekStartStr} s/d ${filterDate}`
+          : `Tahun: ${filterYear}`;
+
+      exportTeacherAttendanceToPdf(
+        filteredTeacherRecords,
+        [],
+        `LAPORAN REKAPITULASI KEHADIRAN GURU & STAF (${reportTab})`,
+        `${periodLabel}  |  Kategori: ${activeTeacherCategoryLabel}`,
+        settings,
+        `Laporan_Absensi_Guru_${reportTab}_${
+          reportTab === 'HARIAN' ? filterDate : reportTab === 'MINGGUAN' ? filterDate : filterYear
+        }.pdf`
+      );
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1132,22 +1377,13 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               </button>
 
               <button
-                onClick={() =>
-                  exportAttendanceToPdf(
-                    filteredRecords,
-                    `LAPORAN REKAPITULASI ABSENSI SISWA (${reportTab})`,
-                    `Periode: ${filterDate} | Rombel: ${
-                      filterClassId === 'ALL'
-                        ? 'Semua Rombel'
-                        : classes.find((c) => c.id === filterClassId)?.name || 'Semua'
-                    }`,
-                    settings
-                  )
-                }
+                onClick={handleExportActivePdf}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
               >
                 <FileText className="w-4 h-4 text-[#D4AF37]" />
-                <span>Export PDF Siswa</span>
+                <span>
+                  {reportTab === 'BULANAN' ? 'Export PDF Rekap Bulanan' : 'Export PDF Siswa'}
+                </span>
               </button>
             </>
           ) : (
@@ -1157,7 +1393,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   exportTeacherAttendanceToExcel({
                     records: filteredTeacherRecords,
                     unrecordedTeachers: [],
-                    startDate: filterDate,
+                    startDate: reportTab === 'MINGGUAN' ? weekStartStr : filterDate,
                     endDate: filterDate,
                     exportedBy: `${userProfile.name} (${userProfile.role})`,
                     settings,
@@ -1170,21 +1406,27 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               </button>
 
               <button
-                onClick={() =>
-                  exportTeacherAttendanceToPdf(
-                    filteredTeacherRecords,
-                    [],
-                    `LAPORAN REKAPITULASI KEHADIRAN GURU & STAF (${reportTab})`,
-                    `Periode: ${filterDate} | Kategori: ${teacherCategoryFilter}`,
-                    settings
-                  )
-                }
+                onClick={handleExportActivePdf}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
               >
                 <FileText className="w-4 h-4 text-[#D4AF37]" />
-                <span>Export PDF Guru</span>
+                <span>
+                  {reportTab === 'BULANAN' ? 'Export PDF Rekap Bulanan' : 'Export PDF Guru'}
+                </span>
               </button>
             </>
+          )}
+
+          {reportTab !== 'BULANAN' && (
+            <button
+              type="button"
+              onClick={handleDownloadMonthlyPdf}
+              title={`Unduh PDF Rekap Bulanan ${monthDisplayLabel}`}
+              className="px-3.5 py-2 text-xs font-semibold text-[#0A3D91] bg-[#F5F8FF] hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>PDF Rekap Bulanan ({monthDisplayLabel})</span>
+            </button>
           )}
 
           <button
@@ -1231,11 +1473,16 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
 
         {/* Multi-Dimensional Filters */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
-          {reportTab === 'HARIAN' && (
+          {(reportTab === 'HARIAN' || reportTab === 'MINGGUAN') && (
             <input
               type="date"
               value={filterDate}
               onChange={(e) => setFilterDate(e.target.value)}
+              title={
+                reportTab === 'MINGGUAN'
+                  ? `Rentang 7 hari berakhir pada ${filterDate}`
+                  : 'Pilih tanggal laporan'
+              }
               className="px-3 py-2 bg-[#F5F8FF] border border-slate-200 rounded-lg font-mono tabular-nums"
             />
           )}
@@ -1316,10 +1563,67 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
         </div>
       </div>
 
+      {/* Monthly Executive Recap Banner when Rekap Bulanan tab is active */}
+      {reportTab === 'BULANAN' && (
+        <div className="bg-[#F5F8FF] rounded-xl border border-blue-200 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-[#0A3D91] text-white text-[10px] font-bold">
+                REKAP BULANAN
+              </span>
+              <h2 className="text-sm font-bold font-display text-slate-900">
+                Periode {monthDisplayLabel} ·{' '}
+                {reportTarget === 'SISWA' ? activeClassLabel : activeTeacherCategoryLabel}
+              </h2>
+            </div>
+            <p className="text-xs text-slate-600">
+              Siap diunduh sebagai PDF resmi Kepala Sekolah (berisi ringkasan bulanan, rekap per
+              individu, rekap per rombel, dan kolom tanda tangan Kepala Sekolah).
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <div className="flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-lg text-xs">
+              <button
+                type="button"
+                onClick={() => setMonthlyViewMode('RECAP')}
+                className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
+                  monthlyViewMode === 'RECAP'
+                    ? 'bg-[#0A3D91] text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {reportTarget === 'SISWA' ? 'Rekap Per Siswa' : 'Rekap Per Guru'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMonthlyViewMode('DAILY')}
+                className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
+                  monthlyViewMode === 'DAILY'
+                    ? 'bg-[#0A3D91] text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Log Harian Bulan Ini
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadMonthlyPdf}
+              className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-[#D4AF37]" />
+              <span>Unduh PDF Bulanan ({monthDisplayLabel})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table Content Based on Active Target & Tab */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {reportTarget === 'GURU' ? (
-          reportTab === 'PER_SISWA' ? (
+          reportTab === 'PER_SISWA' || (reportTab === 'BULANAN' && monthlyViewMode === 'RECAP') ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -1336,35 +1640,46 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {teacherRecapRows.map((row) => (
-                    <tr key={row.teacher.id} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-mono tabular-nums">{row.teacher.nip}</td>
-                      <td className="py-3 px-4 font-semibold text-slate-900">
-                        {row.teacher.fullName}
-                      </td>
-                      <td className="py-3 px-4 text-[#0A3D91] font-medium">
-                        {row.teacher.className}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 font-semibold">
-                        {row.hadir}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-amber-700">
-                        {row.terlambat}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-[#0A3D91] font-semibold">
-                        {row.dinasLuar}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-sky-700">
-                        {row.izin + row.sakit}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-rose-700">
-                        {row.alpa}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-[#0A3D91]">
-                        {row.pct}%
+                  {(reportTab === 'BULANAN' ? monthlyTeacherRecapRows : teacherRecapRows).length ===
+                  0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-slate-500">
+                        Belum ada data guru/staf aktif untuk periode atau filter yang dipilih.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    (reportTab === 'BULANAN' ? monthlyTeacherRecapRows : teacherRecapRows).map(
+                      (row) => (
+                        <tr key={row.teacher.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-mono tabular-nums">{row.teacher.nip}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-900">
+                            {row.teacher.fullName}
+                          </td>
+                          <td className="py-3 px-4 text-[#0A3D91] font-medium">
+                            {row.teacher.className}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 font-semibold">
+                            {row.hadir}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-amber-700">
+                            {row.terlambat}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-[#0A3D91] font-semibold">
+                            {row.dinasLuar}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-sky-700">
+                            {row.izin + row.sakit}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums text-rose-700">
+                            {row.alpa}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-[#0A3D91]">
+                            {row.pct}%
+                          </td>
+                        </tr>
+                      )
+                    )
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1416,7 +1731,7 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
               </table>
             </div>
           )
-        ) : reportTab === 'PER_SISWA' ? (
+        ) : reportTab === 'PER_SISWA' || (reportTab === 'BULANAN' && monthlyViewMode === 'RECAP') ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -1433,33 +1748,44 @@ export const AttendanceReportsView: React.FC<AttendanceReportsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {studentRecapRows.map((row) => (
-                  <tr key={row.student.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-mono tabular-nums">{row.student.nis}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      {row.student.fullName}
-                    </td>
-                    <td className="py-3 px-4">{row.student.className}</td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 font-semibold">
-                      {row.hadir}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-amber-700">
-                      {row.terlambat}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-sky-700">
-                      {row.izin}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-indigo-700">
-                      {row.sakit}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-rose-700">
-                      {row.alpa}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-[#0A3D91]">
-                      {row.pct}%
+                {(reportTab === 'BULANAN' ? monthlyStudentRecapRows : studentRecapRows).length ===
+                0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-500">
+                      Belum ada data siswa aktif untuk periode atau filter yang dipilih.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  (reportTab === 'BULANAN' ? monthlyStudentRecapRows : studentRecapRows).map(
+                    (row) => (
+                      <tr key={row.student.id} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-mono tabular-nums">{row.student.nis}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">
+                          {row.student.fullName}
+                        </td>
+                        <td className="py-3 px-4">{row.student.className}</td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-emerald-700 font-semibold">
+                          {row.hadir}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-amber-700">
+                          {row.terlambat}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-sky-700">
+                          {row.izin}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-indigo-700">
+                          {row.sakit}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-rose-700">
+                          {row.alpa}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-[#0A3D91]">
+                          {row.pct}%
+                        </td>
+                      </tr>
+                    )
+                  )
+                )}
               </tbody>
             </table>
           </div>

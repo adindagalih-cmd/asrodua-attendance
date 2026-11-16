@@ -288,3 +288,15 @@ export interface Announcement {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ResetDataScope = 'TEACHERS' | 'STUDENTS' | 'BOTH';
+
+export interface ResetDataResult {
+  deletedTeachers: number;
+  deletedTeacherAttendance: number;
+  deletedStudents: number;
+  deletedQrTokens: number;
+  deletedStudentAttendance: number;
+  deletedNotifications: number;
+}
+

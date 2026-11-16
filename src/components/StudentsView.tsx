@@ -10,8 +10,10 @@ import {
   QrCode,
   X,
   Check,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
-import { SchoolClass, Student, UserProfile } from '../types';
+import { ResetDataResult, SchoolClass, Student, UserProfile } from '../types';
 import {
   downloadSingleQrPng,
   downloadStudentImportTemplate,
@@ -28,6 +30,7 @@ interface StudentsViewProps {
     existingId?: string
   ) => Promise<void>;
   onDeleteStudent: (student: Student) => Promise<void>;
+  onResetStudents?: (includeAttendance: boolean) => Promise<ResetDataResult>;
   onBulkImportStudents: (
     rows: Array<{
       nis: string;
@@ -48,6 +51,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   classes,
   onSaveStudent,
   onDeleteStudent,
+  onResetStudents,
   onBulkImportStudents,
 }) => {
   const canEdit = userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN_SEKOLAH';
@@ -64,6 +68,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [includeAttendanceReset, setIncludeAttendanceReset] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
@@ -248,13 +255,25 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           </button>
 
           {canEdit && (
-            <button
-              onClick={openAddModal}
-              className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 text-[#D4AF37]" />
-              <span>Tambah Siswa</span>
-            </button>
+            <>
+              <button
+                onClick={openAddModal}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#0A3D91] hover:bg-[#082f70] rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-[#D4AF37]" />
+                <span>Tambah Siswa</span>
+              </button>
+              {onResetStudents && (
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(true)}
+                  className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Data Siswa</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -331,7 +350,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               {filteredStudents.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-slate-500">
-                    Tidak ada data siswa yang sesuai dengan kriteria pencarian.
+                    {students.length === 0
+                      ? 'Belum ada data siswa. Silakan klik "Tambah Siswa" atau "Import Excel" untuk memasukkan data siswa baru.'
+                      : 'Tidak ada data siswa yang sesuai dengan kriteria pencarian.'}
                   </td>
                 </tr>
               ) : (
@@ -644,6 +665,80 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg cursor-pointer"
               >
                 Ya, Hapus Siswa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset All Students Confirmation Modal */}
+      {isResetModalOpen && onResetStudents && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-display text-slate-900">
+                  Reset Seluruh Data Siswa?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Persiapan pengisian atau import Excel data siswa baru
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              Semua <strong>{students.length} data siswa</strong> beserta token QR pelajar lama akan
+              dihapus/dinonaktifkan dari Firestore. Daftar rombel (Kelas 1A–6B) tetap aman
+              tersimpan untuk menampung siswa baru.
+            </p>
+
+            {userProfile.role === 'SUPER_ADMIN' && (
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F5F8FF] border border-slate-200 text-xs text-slate-700 mb-5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeAttendanceReset}
+                  onChange={(e) => setIncludeAttendanceReset(e.target.checked)}
+                  className="mt-0.5 rounded text-[#0A3D91]"
+                />
+                <span>
+                  Hapus juga seluruh riwayat <strong>Absensi Siswa, Token QR Lama &amp; Log WA</strong>{' '}
+                  agar laporan kembali bersih.
+                </span>
+              </label>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={async () => {
+                  setIsResetting(true);
+                  try {
+                    const res = await onResetStudents(includeAttendanceReset);
+                    setIsResetModalOpen(false);
+                    setFeedbackMsg(
+                      `Reset selesai: ${res.deletedStudents} data siswa, ${res.deletedQrTokens} token QR, dan ${res.deletedStudentAttendance} riwayat absensi siswa berhasil dibersihkan. Silakan input atau import data siswa baru.`
+                    );
+                    setTimeout(() => setFeedbackMsg(null), 6000);
+                  } finally {
+                    setIsResetting(false);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-60 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>{isResetting ? 'Mereset...' : 'Ya, Reset Data Siswa'}</span>
               </button>
             </div>
           </div>

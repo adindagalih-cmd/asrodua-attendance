@@ -787,7 +787,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Statistik Kehadiran Setiap Kelas
               </h2>
               <p className="text-xs text-slate-500">
-                Perbandingan kehadiran Kelas 1A sampai Kelas 6A pada {formatIndonesianDate(selectedDate)}
+                Perbandingan kehadiran seluruh rombel (Kelas 1A – 6B) pada {formatIndonesianDate(selectedDate)}
               </p>
             </div>
             <button

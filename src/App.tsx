@@ -15,6 +15,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   setDoc,
@@ -68,6 +69,8 @@ import {
   OperationType,
   PageId,
   QrToken,
+  ResetDataResult,
+  ResetDataScope,
   SchoolClass,
   SiteContent,
   Student,
@@ -81,10 +84,8 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_SITE_CONTENT,
   INITIAL_ANNOUNCEMENTS,
-  INITIAL_CLASSES,
-  INITIAL_TEACHERS,
-  SAMPLE_TEACHER_ATTENDANCE_BY_ID,
   seedSchoolDatabase,
+  syncMissingRombelAndTeachers,
 } from './seedData';
 import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
@@ -603,75 +604,35 @@ export default function App() {
           }
         }
 
-        // Auto-upgrade existing databases with parallel Rombel (1B–6B), Subject Teachers (Guru Mapel), and sample teacherAttendance
-        const todayStr = getTodayDateString();
-        const rombelBSnap = await getDoc(doc(db, 'classes', 'cls_1b'));
-        const mapelSnap = await getDoc(doc(db, 'teachers', 'tch_mapel_pai'));
-        const mapelAttSnap = await getDoc(
-          doc(db, 'teacherAttendance', `${todayStr}_tch_mapel_pai`)
-        );
-
-        if ((!rombelBSnap.exists() || !mapelSnap.exists() || !mapelAttSnap.exists()) && !cancelled) {
-          const nowIso = new Date().toISOString();
-          const batch = writeBatch(db);
-
-          if (!rombelBSnap.exists()) {
-            for (const cls of INITIAL_CLASSES) {
-              batch.set(
-                doc(db, 'classes', cls.id),
-                { ...cls, createdAt: nowIso },
-                { merge: true }
-              );
+        // Check immutable auditLogs to ensure sample teachers/students are never re-seeded after an admin reset
+        if (!cancelled) {
+          const auditSnap = await getDocs(
+            query(
+              collection(db, 'auditLogs'),
+              where('actorRole', 'in', ['SUPER_ADMIN', 'ADMIN_SEKOLAH', 'KEPALA_SEKOLAH', 'GURU'])
+            )
+          );
+          let hasResetTeachers = false;
+          let hasResetStudents = false;
+          auditSnap.docs.forEach((d) => {
+            const act = (d.data() as AuditLog).action;
+            if (act === 'RESET_DATA_GURU' || act === 'RESET_DATA_GURU_DAN_SISWA') {
+              hasResetTeachers = true;
             }
-          }
-
-          if (!mapelSnap.exists()) {
-            for (const tch of INITIAL_TEACHERS) {
-              batch.set(
-                doc(db, 'teachers', tch.id),
-                { ...tch, createdAt: nowIso },
-                { merge: true }
-              );
+            if (act === 'RESET_DATA_SISWA' || act === 'RESET_DATA_GURU_DAN_SISWA') {
+              hasResetStudents = true;
             }
-          }
+          });
 
-          if (!mapelAttSnap.exists()) {
-            INITIAL_TEACHERS.forEach((tch) => {
-              const sp = SAMPLE_TEACHER_ATTENDANCE_BY_ID[tch.id];
-              if (!sp) return;
-              const tAttId = `${todayStr}_${tch.id}`;
-              const rec: TeacherAttendanceRecord = {
-                id: tAttId,
-                teacherId: tch.id,
-                nip: tch.nip,
-                teacherName: tch.fullName,
-                role: tch.role,
-                classId: tch.classId,
-                className: tch.className,
-                date: todayStr,
-                academicYear: settings.activeAcademicYear || '2026/2027',
-                status: sp.status,
-                checkInTime: sp.checkInTime,
-                checkOutTime: sp.checkOutTime,
-                session: sp.checkOutTime
-                  ? 'PULANG'
-                  : sp.status === 'DINAS_LUAR'
-                  ? 'MANUAL'
-                  : 'MASUK',
-                qrTokenUsed: getTeacherQrCodeId(tch.id, tch.nip),
-                verifiedByUid: firebaseUser!.uid,
-                verifiedByName: userProfile!.name,
-                notes: sp.notes,
-                createdAt: nowIso,
-                updatedAt: nowIso,
-              };
-              batch.set(doc(db, 'teacherAttendance', tAttId), rec, { merge: true });
-            });
-          }
-
-          await batch.commit();
+          await syncMissingRombelAndTeachers(
+            firebaseUser!.uid,
+            userProfile!.name,
+            settings.activeAcademicYear || '2026/2027',
+            { skipTeachers: hasResetTeachers, skipStudents: hasResetStudents }
+          );
         }
-      } catch {
+      } catch (err) {
+        console.error('Auto-seed / upgrade failed:', err);
         setIsSeeding(false);
       }
     }
@@ -1539,7 +1500,8 @@ export default function App() {
     existingId?: string
   ) => {
     const nowIso = new Date().toISOString();
-    const id = existingId || sanitizeId(`cls_${data.name.toLowerCase().replace(/\s+/g, '_')}`);
+    const slug = data.name.trim().toLowerCase().replace(/^kelas\s+/i, '').replace(/\s+/g, '_');
+    const id = existingId || sanitizeId(`cls_${slug}`);
     const existing = classes.find((c) => c.id === id);
     const clsDoc: SchoolClass = {
       id,
@@ -1582,6 +1544,193 @@ export default function App() {
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `classes/${cls.id}`);
+    }
+  };
+
+  const handleSyncParallelRombel = async () => {
+    if (!userProfile) {
+      return { addedClasses: 0, addedTeachers: 0, addedStudents: 0 };
+    }
+    try {
+      const hasResetTeachers = auditLogs.some(
+        (l) => l.action === 'RESET_DATA_GURU' || l.action === 'RESET_DATA_GURU_DAN_SISWA'
+      );
+      const hasResetStudents = auditLogs.some(
+        (l) => l.action === 'RESET_DATA_SISWA' || l.action === 'RESET_DATA_GURU_DAN_SISWA'
+      );
+      const res = await syncMissingRombelAndTeachers(
+        userProfile.uid,
+        userProfile.name,
+        settings.activeAcademicYear || '2026/2027',
+        { skipTeachers: hasResetTeachers, skipStudents: hasResetStudents }
+      );
+      if (res.addedClasses > 0 || res.addedTeachers > 0 || res.addedStudents > 0) {
+        await writeAuditEntry({
+          action: 'SINKRONISASI_ROMBEL_PARALEL',
+          targetCollection: 'classes',
+          targetId: 'rombel_1b_6b',
+          targetName: 'Kelas 1B–6B',
+          previousValue: `${classes.length} Rombel`,
+          newValue: `+${res.addedClasses} Rombel, +${res.addedTeachers} Guru/Mapel, +${res.addedStudents} Siswa`,
+          reason: 'Sinkronisasi rombel paralel Kelas 1B–6B dan wali kelas/guru mapel',
+        });
+      }
+      return res;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'classes');
+      return { addedClasses: 0, addedTeachers: 0, addedStudents: 0 };
+    }
+  };
+
+  // Reset Data Guru & Siswa Handler (with 400-op chunked batches & audit log)
+  const handleResetData = async (
+    scope: ResetDataScope,
+    includeAttendance: boolean
+  ): Promise<ResetDataResult> => {
+    const result: ResetDataResult = {
+      deletedTeachers: 0,
+      deletedTeacherAttendance: 0,
+      deletedStudents: 0,
+      deletedQrTokens: 0,
+      deletedStudentAttendance: 0,
+      deletedNotifications: 0,
+    };
+    if (!userProfile) return result;
+
+    const nowIso = new Date().toISOString();
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+
+    try {
+      if (scope === 'TEACHERS' || scope === 'BOTH') {
+        const teachersSnap = await getDocs(
+          query(collection(db, 'teachers'), where('status', 'in', ['AKTIF', 'NONAKTIF']))
+        );
+        teachersSnap.docs.forEach((d) => {
+          ops.push((b) => b.delete(d.ref));
+          result.deletedTeachers++;
+        });
+
+        // Clear homeroom teacher assignment on classes while keeping all 1A–6B rombel intact
+        const classesSnap = await getDocs(
+          query(collection(db, 'classes'), where('grade', '>=', 1))
+        );
+        classesSnap.docs.forEach((d) => {
+          const c = d.data() as SchoolClass;
+          if (c.homeroomTeacherId || c.homeroomTeacherName !== 'Belum Ditentukan') {
+            ops.push((b) =>
+              b.update(d.ref, {
+                homeroomTeacherId: '',
+                homeroomTeacherName: 'Belum Ditentukan',
+                updatedAt: nowIso,
+              })
+            );
+          }
+        });
+
+        if (includeAttendance) {
+          const tAttSnap = await getDocs(
+            query(
+              collection(db, 'teacherAttendance'),
+              where('status', 'in', ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'DINAS_LUAR', 'ALPA'])
+            )
+          );
+          tAttSnap.docs.forEach((d) => {
+            ops.push((b) => b.delete(d.ref));
+            result.deletedTeacherAttendance++;
+          });
+        }
+      }
+
+      if (scope === 'STUDENTS' || scope === 'BOTH') {
+        const studentsSnap = await getDocs(
+          query(collection(db, 'students'), where('status', 'in', ['AKTIF', 'NONAKTIF']))
+        );
+        studentsSnap.docs.forEach((d) => {
+          ops.push((b) => b.delete(d.ref));
+          result.deletedStudents++;
+        });
+
+        const tokensSnap = await getDocs(
+          query(collection(db, 'qrTokens'), where('status', 'in', ['ACTIVE', 'REVOKED']))
+        );
+        if (userProfile.role === 'SUPER_ADMIN') {
+          tokensSnap.docs.forEach((d) => {
+            ops.push((b) => b.delete(d.ref));
+            result.deletedQrTokens++;
+          });
+        } else {
+          tokensSnap.docs.forEach((d) => {
+            const t = d.data() as QrToken;
+            if (t.status === 'ACTIVE') {
+              ops.push((b) => b.update(d.ref, { status: 'REVOKED', revokedAt: nowIso }));
+              result.deletedQrTokens++;
+            }
+          });
+        }
+
+        if (includeAttendance && userProfile.role === 'SUPER_ADMIN') {
+          const attSnap = await getDocs(
+            query(
+              collection(db, 'attendance'),
+              where('status', 'in', ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'ALPA'])
+            )
+          );
+          attSnap.docs.forEach((d) => {
+            ops.push((b) => b.delete(d.ref));
+            result.deletedStudentAttendance++;
+          });
+
+          const notifSnap = await getDocs(
+            query(
+              collection(db, 'notificationLogs'),
+              where('status', 'in', ['SENT', 'DELIVERED', 'FAILED', 'PENDING'])
+            )
+          );
+          notifSnap.docs.forEach((d) => {
+            ops.push((b) => b.delete(d.ref));
+            result.deletedNotifications++;
+          });
+        }
+      }
+
+      // Commit in 400-operation chunks (Firestore limit is 500 per batch)
+      for (let i = 0; i < ops.length; i += 400) {
+        const chunk = ops.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach((applyOp) => applyOp(batch));
+        await batch.commit();
+      }
+
+      const actionName =
+        scope === 'TEACHERS'
+          ? 'RESET_DATA_GURU'
+          : scope === 'STUDENTS'
+          ? 'RESET_DATA_SISWA'
+          : 'RESET_DATA_GURU_DAN_SISWA';
+
+      await writeAuditEntry({
+        action: actionName,
+        targetCollection:
+          scope === 'TEACHERS'
+            ? 'teachers'
+            : scope === 'STUDENTS'
+            ? 'students'
+            : 'teachers_students',
+        targetId: 'bulk_reset',
+        targetName:
+          scope === 'TEACHERS'
+            ? 'Data Guru & Staf'
+            : scope === 'STUDENTS'
+            ? 'Data Siswa'
+            : 'Data Guru & Siswa',
+        previousValue: `${result.deletedTeachers} Guru, ${result.deletedStudents} Siswa, ${result.deletedTeacherAttendance + result.deletedStudentAttendance} Absensi`,
+        newValue: '0 data (Siap pengisian data baru)',
+        reason: 'Reset data oleh administrator untuk pengisian data guru dan/atau siswa baru',
+      });
+
+      return result;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `reset_${scope.toLowerCase()}`);
     }
   };
 
@@ -2250,6 +2399,7 @@ export default function App() {
               classes={classes}
               onSaveStudent={handleSaveStudent}
               onDeleteStudent={handleDeleteStudent}
+              onResetStudents={(inc) => handleResetData('STUDENTS', inc)}
               onBulkImportStudents={handleBulkImportStudents}
             />
           )}
@@ -2262,6 +2412,7 @@ export default function App() {
               schoolName={siteContent.schoolName}
               onSaveTeacher={handleSaveTeacher}
               onDeleteTeacher={handleDeleteTeacher}
+              onResetTeachers={(inc) => handleResetData('TEACHERS', inc)}
               onNavigate={setActivePage}
             />
           )}
@@ -2286,6 +2437,7 @@ export default function App() {
               students={students}
               onSaveClass={handleSaveClass}
               onDeleteClass={handleDeleteClass}
+              onSyncParallelRombel={handleSyncParallelRombel}
             />
           )}
 
@@ -2375,6 +2527,9 @@ export default function App() {
               onSaveSettings={handleSaveSettings}
               onAddAcademicYear={handleAddAcademicYear}
               onActivateAcademicYear={handleActivateAcademicYear}
+              teacherCount={teachers.length}
+              studentCount={students.length}
+              onResetSchoolData={handleResetData}
             />
           )}
 
